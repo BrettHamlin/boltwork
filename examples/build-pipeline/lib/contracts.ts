@@ -53,7 +53,7 @@ export function parseAnnotations(tasksText: string, mindName: string): ContractA
       annotations.push({
         type: "produces",
         name: producesMatch[1]!.replace(/[()]/g, "").replace(/^`+|`+$/g, ""),
-        filePath: producesMatch[2]!,
+        filePath: producesMatch[2]!.replace(/[)]+$/, ""),
         taskId: taskId!,
       });
     }
@@ -65,7 +65,7 @@ export function parseAnnotations(tasksText: string, mindName: string): ContractA
       annotations.push({
         type: "consumes",
         name: consumesMatch[1]!.replace(/[()]/g, "").replace(/^`+|`+$/g, ""),
-        filePath: consumesMatch[2]!,
+        filePath: consumesMatch[2]!.replace(/[)]+$/, ""),
         taskId: taskId!,
       });
     }
