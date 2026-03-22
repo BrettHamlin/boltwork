@@ -30,7 +30,6 @@ export interface ReportData {
       explanation: string;
     }>;
   }>;
-  flow: string; // Mermaid diagram
   notes: string[];
 }
 
@@ -122,14 +121,6 @@ ${diff.slice(0, 40_000)}
 Map each acceptance criterion from the spec to the actual code that implements it.
 For each criterion, extract the SPECIFIC diff hunks (just the relevant lines, not the whole file) that serve as evidence.
 
-Also generate a Mermaid flowchart (graph TD) showing how the new code connects.
-- NEW nodes: style with fill:#12261e,stroke:#3fb950,color:#3fb950
-- MODIFIED nodes: style with fill:#2d1f0e,stroke:#d29922,color:#d29922
-- 5-10 nodes max, show data flow
-- IMPORTANT: Node labels must be simple text only — NO colons, brackets, parentheses, or special characters in labels. Use simple names like "logStore" not "logStore: RequestLogEntry[]". Use hyphens instead of spaces in labels.
-- Use square brackets for node shapes: A[simple-label]
-- Edge labels use |text| syntax: A -->|calls| B
-
 Return ONLY this JSON (no markdown, no backticks wrapping it):
 
 {
@@ -147,7 +138,6 @@ Return ONLY this JSON (no markdown, no backticks wrapping it):
       ]
     }
   ],
-  "flow": "graph TD\\n    A[Node] --> B[Node]\\n    style A fill:#12261e,stroke:#3fb950,color:#3fb950",
   "notes": [
     "plain English observation for the reviewer (not a critique, just something to be aware of)"
   ]

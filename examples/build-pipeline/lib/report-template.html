@@ -63,8 +63,6 @@ body { font-family:'Inter',-apple-system,system-ui,sans-serif; background:var(--
 .s-num { color:var(--num); } .s-cm { color:var(--text-3); font-style:italic; }
 .s-type { color:var(--cyan); }
 
-.flow-box { background:var(--bg-card); border:1px solid var(--border-light); border-radius:8px; padding:24px; display:flex; justify-content:center; overflow-x:auto; margin:12px 0; }
-.flow-fallback { background:var(--bg-code); border:1px solid var(--border-light); border-radius:6px; padding:16px 20px; font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--text-2); white-space:pre; line-height:1.5; overflow-x:auto; margin:12px 0; }
 
 .notes { background:rgba(210,153,34,0.06); border:1px solid rgba(210,153,34,0.12); border-left:3px solid var(--amber); border-radius:6px; padding:16px 20px; margin:12px 0; }
 .notes-label { font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--amber); margin-bottom:10px; }
@@ -161,12 +159,6 @@ function render() {
   });
   h += '</div>';
 
-  // Flow diagram
-  if (D.flow) {
-    h += '<div class="section"><div class="section-title">Flow</div>';
-    h += '<div class="flow-box"><pre class="mermaid">' + D.flow + '</pre></div>';
-    h += '</div>';
-  }
 
   // Notes
   if (D.notes && D.notes.length > 0) {
@@ -181,8 +173,6 @@ function render() {
 
   document.getElementById('app').innerHTML = h;
 
-  // Try to render mermaid
-  loadMermaid();
 }
 
 function toggle(i) {
@@ -192,34 +182,6 @@ function toggle(i) {
   arrow.classList.toggle('open');
 }
 
-function loadMermaid() {
-  import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs').then(function(mod) {
-    mod.default.initialize({
-      startOnLoad: false,
-      theme: 'dark',
-      themeVariables: {
-        darkMode: true, background: '#161b22',
-        primaryColor: '#1e3a5f', primaryTextColor: '#e6edf3',
-        primaryBorderColor: '#58a6ff', lineColor: '#30363d',
-        fontFamily: 'Inter, sans-serif', fontSize: '13px',
-      },
-      flowchart: { htmlLabels: true, curve: 'basis', padding: 16 },
-    });
-    mod.default.run({ querySelector: '.mermaid' }).catch(function() {
-      // Fallback: show raw diagram text
-      document.querySelectorAll('.mermaid').forEach(function(el) {
-        var raw = el.textContent;
-        el.parentElement.outerHTML = '<pre class="flow-fallback">' + esc(raw) + '</pre>';
-      });
-    });
-  }).catch(function() {
-    // Mermaid CDN unavailable — show raw text
-    document.querySelectorAll('.mermaid').forEach(function(el) {
-      var raw = el.textContent;
-      el.parentElement.outerHTML = '<pre class="flow-fallback">' + esc(raw) + '</pre>';
-    });
-  });
-}
 
 render();
 </script>
