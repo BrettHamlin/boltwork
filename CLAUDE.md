@@ -11,15 +11,14 @@ src/
   bus/
     server.ts           — HTTP SSE bus server (standalone process)
     client.ts           — bus publish/subscribe (HTTP client)
+    lifecycle.ts        — startBus() / stop() helpers
   primitives/
     llm-call.ts         — one-shot claude -p call
     gate.ts             — boolean assertion, throws on false
     session.ts          — spawn Claude Code in tmux pane + worktree
     signal.ts           — publish/wait for bus events
-    registry.ts         — read/append JSON file
-    memory.ts           — read/write MEMORY.md files
     feedback-loop.ts    — check → feedback → retry cycle
-    installer.ts        — copy files, preserve project data
+  tbd/                  — future extensions (registry, memory, installer)
 ```
 
 ## Principles

@@ -60,11 +60,3 @@ export class MaxIterationsExceeded extends Error {
     super(`Loop "${loopName}" exceeded ${maxIterations} iterations without passing`);
   }
 }
-
-/** Installer failed to copy files. */
-export class InstallerError extends Error {
-  override readonly name = "InstallerError";
-  constructor(message: string) {
-    super(message);
-  }
-}

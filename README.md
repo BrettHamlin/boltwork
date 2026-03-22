@@ -23,7 +23,7 @@ bun add ./path/to/boltwork
 - [tmux](https://github.com/tmux/tmux) — needed for `spawnSession`
 - Git — needed for worktree isolation
 
-Not every primitive needs all requirements. `gate`, `registryRead/Append`, `remember/recall`, and `install` work with just Bun. `llmCall` adds the Claude Code CLI. `spawnSession` adds tmux and git.
+Not every primitive needs all requirements. `gate` works with just Bun. `llmCall` adds the Claude Code CLI. `spawnSession` and `feedbackLoop` add tmux and git.
 
 ## Quick Start
 
@@ -174,65 +174,6 @@ const result = await feedbackLoop({
 
 The session stays alive between iterations — no context is lost.
 
-### registryRead / registryAppend — JSON Registry
-
-JSON file that accumulates entries. Stages read it, filter by scope, process matches.
-
-```typescript
-import { registryRead, registryAppend } from "boltwork";
-
-// Append an entry
-await registryAppend("tests/e2e/registry.json", {
-  mind: "@auth",
-  file: "tests/e2e/auth.test.ts",
-  type: "unit",
-});
-
-// Read with filter
-const authTests = await registryRead<{ mind: string; file: string }>(
-  "tests/e2e/registry.json",
-  (entry) => entry.mind === "@auth",
-);
-```
-
-### remember / recall — Memory
-
-Persistent knowledge stored in markdown files. Survives resets (committed to git).
-
-```typescript
-import { remember, recall } from "boltwork";
-
-// Store a learning
-await remember(".pipeline/memory/auth.md", "Always hash passwords with bcrypt");
-await remember(".pipeline/memory/auth.md", "New modules MUST be registered in config.ts");
-
-// Recall all entries
-const rules = await recall(".pipeline/memory/auth.md");
-
-// Recall with search filter
-const configRules = await recall(".pipeline/memory/auth.md", "config");
-```
-
-### install — Installer / Scaffold
-
-Copy infrastructure files into a target project. Idempotent. Never overwrites preserved paths.
-
-```typescript
-import { install } from "boltwork";
-
-await install({
-  files: {
-    ".pipeline/review.ts": reviewStageCode,
-    ".pipeline/gate.ts": gateStageCode,
-    "tests/e2e/registry.json": "[]",
-  },
-  preserve: [
-    "tests/e2e/registry.json",    // don't overwrite existing entries
-    ".pipeline/memory/",           // don't touch project-specific memory
-  ],
-});
-```
-
 ## Event Bus
 
 The bus is an HTTP SSE server that routes events between sessions. Start it before spawning sessions that use signals.
@@ -294,7 +235,6 @@ All primitives throw from a centralized set of error types:
 | `SignalTimeout` | `waitForSignal` | Timed out waiting for an event |
 | `SignalError` | `publish`, `waitForSignal` | Bus communication failed |
 | `MaxIterationsExceeded` | `feedbackLoop` | Loop exhausted all iterations |
-| `InstallerError` | `install` | File copy failed |
 
 ```typescript
 import { GateRejection, MaxIterationsExceeded } from "boltwork";
@@ -316,33 +256,18 @@ try {
 import {
   startBus,
   llmCall,
-  gate,
   spawnSession,
   feedbackLoop,
   waitForSignal,
-  remember,
-  recall,
 } from "boltwork";
 
 async function implement(taskDescription: string) {
-  // Start the event bus
   const bus = await startBus();
 
   try {
-    // Load project knowledge
-    const rules = await recall(".pipeline/memory/project.md");
-
-    // Build the brief
-    const brief = [
-      taskDescription,
-      "",
-      "## Rules (MANDATORY)",
-      ...rules.map((r) => `- ${r.content}`),
-    ].join("\n");
-
     // Spawn a coding agent
     const drone = await spawnSession({
-      brief,
+      brief: taskDescription,
       worktree: true,
       signalChannel: "my-pipeline",
     });
@@ -357,8 +282,9 @@ async function implement(taskDescription: string) {
         await waitForSignal("my-pipeline", "HOOK_Stop");
 
         const tests = Bun.spawnSync(["bun", "test"], { cwd: drone.cwd });
+        const diff = Bun.spawnSync(["git", "diff", "HEAD~1"], { cwd: drone.cwd });
         const review = await llmCall(
-          `Review this diff for correctness:\n${getDiff(drone.cwd)}`
+          `Review this diff for correctness:\n${diff.stdout.toString()}`
         );
 
         return {
@@ -370,7 +296,6 @@ async function implement(taskDescription: string) {
       },
 
       passed(result) {
-        // Gate: tests override everything
         if (!result.testsPass) return false;
         return result.reviewApproved;
       },
@@ -383,21 +308,15 @@ async function implement(taskDescription: string) {
       },
     });
 
-    // Passed! Merge the branch
+    // Passed — merge and clean up
     Bun.spawnSync(["git", "merge", drone.branch!], { cwd: process.cwd() });
-
-    // Clean up
     await drone.cleanupWorktree();
-
-    // Save what we learned
-    await remember(".pipeline/memory/project.md", `Implemented: ${taskDescription}`);
 
   } finally {
     bus.stop();
   }
 }
 
-// Run it
 await implement("Add rate limiting to the /api/users endpoint");
 ```
 
