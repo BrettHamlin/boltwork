@@ -17,6 +17,7 @@ import { computeWaves } from "./lib/waves.ts";
 import { spawnDrone } from "./lib/drone.ts";
 import { reviewDrone } from "./lib/review-loop.ts";
 import { mergeBranch, cleanupDrone } from "./lib/merge.ts";
+import { generateReport } from "./lib/report.ts";
 
 /**
  * Run the full build pipeline.
@@ -114,6 +115,14 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
   const allApproved = results.every((w) =>
     w.drones.every((d) => d.approved),
   );
+
+  // Generate change report if pipeline passed
+  if (allApproved) {
+    console.log("\n--- Generating change report ---");
+    await generateReport(baseBranch, config.ticketId, config.specPath, {
+      model: config.reviewModel,
+    });
+  }
 
   return { config, waves: results, approved: allApproved };
 }

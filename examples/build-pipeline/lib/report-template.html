@@ -64,6 +64,13 @@ body { font-family:'Inter',-apple-system,system-ui,sans-serif; background:var(--
 .s-type { color:var(--cyan); }
 
 
+.scope-check { background:rgba(88,166,255,0.06); border:1px solid rgba(88,166,255,0.12); border-left:3px solid var(--blue); border-radius:6px; padding:16px 20px; margin:12px 0; }
+.scope-label { font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--blue); margin-bottom:4px; }
+.scope-desc { font-size:13px; color:var(--text-2); margin-bottom:10px; }
+.scope-check ul { list-style:none; }
+.scope-check li { padding:3px 0 3px 16px; position:relative; color:var(--text-1); font-size:13px; font-family:'JetBrains Mono',monospace; line-height:1.6; }
+.scope-check li::before { content:''; position:absolute; left:0; top:11px; width:4px; height:4px; border-radius:50%; background:var(--blue); opacity:.6; }
+
 .notes { background:rgba(210,153,34,0.06); border:1px solid rgba(210,153,34,0.12); border-left:3px solid var(--amber); border-radius:6px; padding:16px 20px; margin:12px 0; }
 .notes-label { font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--amber); margin-bottom:10px; }
 .notes ul { list-style:none; }
@@ -159,6 +166,38 @@ function render() {
   });
   h += '</div>';
 
+
+  // Scope check — files changed that aren't in any evidence block
+  if (D.changedFiles && D.changedFiles.length > 0) {
+    var evidenceFiles = {};
+    D.criteria.forEach(function(c) {
+      c.evidence.forEach(function(ev) { evidenceFiles[ev.file] = true; });
+    });
+    var unmatched = D.changedFiles.filter(function(f) { return !evidenceFiles[f]; });
+
+    if (unmatched.length > 0) {
+      h += '<div class="section"><div class="scope-check">';
+      h += '<div class="scope-label">Unmatched Changes</div>';
+      h += '<div class="scope-desc">These files were changed but don\'t map to any spec requirement.</div>';
+      unmatched.forEach(function(f, i) {
+        var diffContent = D.fileDiffs && D.fileDiffs[f] ? D.fileDiffs[f] : '';
+        var uid = 'unmatched-' + i;
+        h += '<div class="criterion" style="border-color:rgba(88,166,255,0.2)">';
+        h += '<div class="c-header" onclick="toggle(\'' + uid + '\')">';
+        h += '<div class="c-status" style="background:rgba(88,166,255,0.15);color:var(--blue)">?</div>';
+        h += '<div class="c-text" style="font-family:\'JetBrains Mono\',monospace;font-size:13px">' + esc(f) + '</div>';
+        h += '<div class="c-arrow" id="arrow-' + uid + '">▶</div>';
+        h += '</div>';
+        if (diffContent) {
+          h += '<div class="c-body" id="body-' + uid + '">';
+          h += '<div class="ev"><div class="ev-diff">' + colorDiff(diffContent) + '</div></div>';
+          h += '</div>';
+        }
+        h += '</div>';
+      });
+      h += '</div></div>';
+    }
+  }
 
   // Notes
   if (D.notes && D.notes.length > 0) {

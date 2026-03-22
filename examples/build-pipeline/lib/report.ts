@@ -21,6 +21,9 @@ export interface ReportData {
   ticketId: string;
   summary: string;
   stats: { files: number; added: number; removed: number; created: number; modified: number };
+  changedFiles: string[];
+  /** Per-file diffs keyed by file path — for showing unmatched file changes */
+  fileDiffs: Record<string, string>;
   criteria: Array<{
     requirement: string;
     status: "pass" | "partial" | "missing";
@@ -83,7 +86,33 @@ export async function generateReport(
     throw new Error(`Failed to parse report JSON: ${raw.slice(0, 300)}`);
   }
 
-  const data: ReportData = { ticketId, stats, ...parsed };
+  // Build per-file diffs deterministically
+  const fileDiffs: Record<string, string> = {};
+  for (const file of filesList) {
+    const fd = Bun.spawnSync(["git", "diff", `${baseBranch}..HEAD`, "--", file]);
+    const raw = fd.stdout.toString();
+    // Extract just the +/- lines (skip diff headers)
+    const lines = raw.split("\n");
+    const contentLines: string[] = [];
+    for (const line of lines) {
+      if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ") || line.startsWith("index ")) continue;
+      if (line.startsWith("@@")) {
+        if (contentLines.length > 0) contentLines.push("...");
+        continue;
+      }
+      if (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) {
+        contentLines.push(line);
+      }
+    }
+    // Keep it short — max 30 lines per file
+    if (contentLines.length > 30) {
+      fileDiffs[file] = contentLines.slice(0, 30).join("\n") + "\n...";
+    } else {
+      fileDiffs[file] = contentLines.join("\n");
+    }
+  }
+
+  const data: ReportData = { ...parsed, ticketId, stats, changedFiles: filesList, fileDiffs };
 
   // Render HTML
   const templatePath = resolve(dirname(import.meta.path), "report-template.html");
