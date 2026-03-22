@@ -135,18 +135,19 @@ export async function reviewDrone(
       },
     });
 
-    return { mind: drone.mind, session: drone.session, approved: true };
+    return { mind: drone.mind, session: drone.session, approved: true, repo: drone.repo };
   } catch (err) {
     if (err instanceof MaxIterationsExceeded) {
       if (state.lastTestsPass && state.lastBoundaryPass && state.lastContractsPass) {
         console.log(`  [${drone.mind}] Max iterations — approving with warnings (soft failures only)`);
-        return { mind: drone.mind, session: drone.session, approved: true };
+        return { mind: drone.mind, session: drone.session, approved: true, repo: drone.repo };
       }
       return {
         mind: drone.mind,
         session: drone.session,
         approved: false,
         error: `Max iterations with hard failures: ${err.message}`,
+        repo: drone.repo,
       };
     }
     return {
@@ -154,6 +155,7 @@ export async function reviewDrone(
       session: drone.session,
       approved: false,
       error: err instanceof Error ? err.message : String(err),
+      repo: drone.repo,
     };
   }
 }

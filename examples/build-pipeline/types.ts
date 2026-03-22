@@ -14,6 +14,22 @@ export interface Mind {
   pipeline?: string;
   /** Whether this mind can modify infra files (package.json, etc.) */
   infraAllowed?: boolean;
+  /** Repo alias this mind belongs to (set by multi-repo registry loader) */
+  repo?: string;
+}
+
+/** A repo entry in the workspace manifest. */
+export interface WorkspaceRepo {
+  alias: string;
+  path: string;
+  testCommand?: string;
+}
+
+/** The minds-workspace.json manifest format. */
+export interface WorkspaceManifest {
+  version: 1;
+  orchestratorRepo: string;
+  repos: WorkspaceRepo[];
 }
 
 /** A task assigned to a specific mind. */
@@ -107,6 +123,8 @@ export interface PipelineConfig {
   neverModify?: string[];
   /** Path to a coding standards file. Injected into the review prompt. */
   standardsPath?: string;
+  /** Path to a directory containing minds-workspace.json. Enables multi-repo mode. */
+  workspacePath?: string;
 }
 
 /** Info about a spawned drone — used to track it through the review loop. */
@@ -115,6 +133,8 @@ export interface DroneInfo {
   session: import("boltwork").SessionHandle;
   channel: string;
   memory: string;
+  /** Repo alias (multi-repo only). Undefined for single-repo. */
+  repo?: string;
 }
 
 /** Result of reviewing a drone's work. */
@@ -123,6 +143,8 @@ export interface DroneResult {
   session: import("boltwork").SessionHandle;
   approved: boolean;
   error?: string;
+  /** Repo alias (multi-repo only). */
+  repo?: string;
 }
 
 /** Result of a full pipeline run. */

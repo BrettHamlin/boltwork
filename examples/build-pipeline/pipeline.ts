@@ -2,7 +2,9 @@
  * Build Pipeline
  *
  * Opinionated build pipeline built on boltwork primitives.
- * Orchestrates: tasks → waves → parallel drones → review → merge.
+ * Orchestrates: tasks -> waves -> parallel drones -> review -> merge.
+ *
+ * Supports both single-repo and multi-repo workspaces.
  *
  * Usage:
  *   bun run pipeline.ts --ticket BRE-700 --spec specs/BRE-700/spec.md
@@ -10,14 +12,15 @@
 
 import { startBus, gate } from "boltwork";
 import type { PipelineConfig, PipelineResult, WaveResult } from "./types.ts";
-import { loadRegistry } from "./lib/registry.ts";
+import { loadRegistry, loadMultiRepoRegistry } from "./lib/registry.ts";
 import { parseTasks } from "./lib/tasks.ts";
 import { generateTasks } from "./lib/generate-tasks.ts";
 import { computeWaves } from "./lib/waves.ts";
 import { spawnDrone } from "./lib/drone.ts";
 import { reviewDrone } from "./lib/review-loop.ts";
-import { mergeBranch, cleanupDrone } from "./lib/merge.ts";
+import { mergeBranch, cleanupDrone, resolveMergeDir } from "./lib/merge.ts";
 import { generateReport } from "./lib/report.ts";
+import { loadWorkspace } from "./lib/workspace.ts";
 
 /**
  * Run the full build pipeline.
@@ -28,8 +31,23 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
   const droneModel = config.droneModel ?? "sonnet";
   const droneTimeout = config.droneTimeout ?? 300_000;
 
-  // Load inputs
-  const minds = await loadRegistry(config.registryPath);
+  // Resolve workspace — multi-repo or single-repo
+  const workspace = config.workspacePath
+    ? loadWorkspace(config.workspacePath)
+    : null;
+
+  // Load minds from registry
+  let minds;
+  if (workspace?.isMultiRepo) {
+    minds = loadMultiRepoRegistry(workspace.repoPaths);
+    console.log(`Workspace: multi-repo (${workspace.repoPaths.size} repos)`);
+    for (const [alias, path] of workspace.repoPaths) {
+      console.log(`  ${alias}: ${path}`);
+    }
+  } else {
+    minds = await loadRegistry(config.registryPath);
+  }
+
   const standards = config.standardsPath
     ? await Bun.file(config.standardsPath).text().catch(() => "")
     : "";
@@ -55,8 +73,11 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
   // Start infrastructure
   const bus = await startBus({ port: busPort });
   const baseBranch = getCurrentBranch();
-  const baseCommit = getCurrentCommit(); // SHA before any merges — used for report diff
+  const baseCommit = getCurrentCommit();
   const results: WaveResult[] = [];
+
+  // Pass repoPaths to drone spawning for multi-repo cwd resolution
+  const repoPaths = workspace?.isMultiRepo ? workspace.repoPaths : undefined;
 
   try {
     for (const wave of waves) {
@@ -65,7 +86,7 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
       // Spawn drones in parallel for this wave
       const drones = await Promise.all(
         wave.minds.map((mindName) =>
-          spawnDrone(mindName, config, minds, taskGroups, bus.url, droneModel),
+          spawnDrone(mindName, config, minds, taskGroups, bus.url, droneModel, repoPaths),
         ),
       );
 
@@ -90,16 +111,17 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
         break;
       }
 
-      // All approved — merge sequentially
+      // All approved — merge sequentially, routing to correct repo
       for (const result of waveResults) {
+        const mergeDir = resolveMergeDir(process.cwd(), result, repoPaths);
         const mergeResult = mergeBranch(
-          process.cwd(),
+          mergeDir,
           result.session.branch!,
           result.mind,
           wave.id,
         );
         gate(mergeResult.success, `Merge failed for ${result.mind}: ${mergeResult.error}`);
-        console.log(`  Merged: ${result.mind}`);
+        console.log(`  Merged: ${result.mind}${result.repo ? ` (${result.repo})` : ""}`);
       }
 
       // Clean up drones
