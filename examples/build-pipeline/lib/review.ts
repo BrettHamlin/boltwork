@@ -35,7 +35,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewVerdict> 
 
   const response = await llmCall(prompt, {
     model: options.model ?? "sonnet",
-    timeout: 180_000,
+    timeout: 300_000,
   });
 
   return parseVerdict(response);

@@ -73,11 +73,14 @@ function checkBoundary(
     ["git", "log", "--name-only", "--pretty=format:", `${baseBranch}..HEAD`],
     { cwd: worktree },
   );
+  // Filter out boltwork infrastructure files — these are written by the pipeline, not the drone
+  const BOLTWORK_FILES = ["BOLTWORK-BRIEF.md", "BOLTWORK-FEEDBACK.md", ".claude/settings.local.json"];
+
   const modifiedFiles = logResult.stdout
     .toString()
     .split("\n")
     .map((f) => f.trim())
-    .filter(Boolean);
+    .filter((f) => f && !BOLTWORK_FILES.includes(f));
 
   if (modifiedFiles.length === 0) {
     return { passed: true, findings: [] };
