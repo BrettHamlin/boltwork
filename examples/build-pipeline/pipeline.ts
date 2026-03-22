@@ -21,6 +21,7 @@ import type { PipelineConfig, Mind, TaskGroup } from "./types.ts";
 import { loadRegistry, findMind } from "./lib/registry.ts";
 import { loadMemory, formatMemoryForBrief, formatMemoryForReview } from "./lib/memory.ts";
 import { parseTasks, formatTasksForBrief } from "./lib/tasks.ts";
+import { generateTasks } from "./lib/generate-tasks.ts";
 import { computeWaves } from "./lib/waves.ts";
 import { runChecks } from "./lib/checks.ts";
 import { runReview, applyForceRejections } from "./lib/review.ts";
@@ -38,9 +39,19 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
 
   // Load inputs
   const minds = await loadRegistry(config.registryPath);
-  const taskGroups = await parseTasks(
-    `specs/${config.ticketId}/tasks.md`,
-  );
+
+  // Generate or load tasks
+  let taskGroups;
+  if (config.tasksPath) {
+    taskGroups = await parseTasks(config.tasksPath);
+  } else {
+    const spec = await Bun.file(config.specPath).text();
+    const outputPath = `specs/${config.ticketId}/tasks.md`;
+    taskGroups = await generateTasks(config.ticketId, spec, minds, outputPath, {
+      model: config.taskModel,
+    });
+  }
+
   const waves = computeWaves(taskGroups);
 
   console.log(`Pipeline: ${config.ticketId}`);

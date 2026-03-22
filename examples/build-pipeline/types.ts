@@ -95,4 +95,8 @@ export interface PipelineConfig {
   reviewModel?: string;
   /** Drone timeout in ms. Default: 300_000 (5 min) */
   droneTimeout?: number;
+  /** Path to pre-existing tasks.md. If not set, tasks are auto-generated from spec. */
+  tasksPath?: string;
+  /** Model for task generation LLM call. Default: "sonnet" */
+  taskModel?: string;
 }
