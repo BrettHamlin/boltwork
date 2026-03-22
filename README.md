@@ -103,7 +103,7 @@ That's it. No framework. No config files. No runner. Just TypeScript.
 
 ### llmCall — One-Shot LLM Call
 
-Send a prompt to `claude -p`, get a response. No conversation, no tools. One prompt in, one string out. Your code builds the prompt, the LLM provides judgment, your code parses the response.
+Send a one-shot prompt to Claude Code, get a response. No conversation, no tools. One prompt in, one string out. Your code builds the prompt, the LLM provides judgment, your code parses the response.
 
 ```typescript
 import { llmCall } from "boltwork";
