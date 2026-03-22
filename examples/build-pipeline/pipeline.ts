@@ -55,6 +55,7 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
   // Start infrastructure
   const bus = await startBus({ port: busPort });
   const baseBranch = getCurrentBranch();
+  const baseCommit = getCurrentCommit(); // SHA before any merges — used for report diff
   const results: WaveResult[] = [];
 
   try {
@@ -119,7 +120,7 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
   // Generate change report if pipeline passed
   if (allApproved) {
     console.log("\n--- Generating change report ---");
-    await generateReport(baseBranch, config.ticketId, config.specPath, {
+    await generateReport(baseCommit, config.ticketId, config.specPath, {
       model: config.reviewModel,
     });
   }
@@ -130,5 +131,11 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
 /** Get the current git branch name. */
 function getCurrentBranch(): string {
   const result = Bun.spawnSync(["git", "branch", "--show-current"]);
+  return result.stdout.toString().trim();
+}
+
+/** Get the current commit SHA. Used to anchor the report diff before merges move HEAD. */
+function getCurrentCommit(): string {
+  const result = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
   return result.stdout.toString().trim();
 }
