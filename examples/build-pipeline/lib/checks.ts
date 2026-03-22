@@ -17,7 +17,9 @@ export async function runChecks(
   testCommand: string,
 ): Promise<CheckResults> {
   const diff = getDiff(worktree, baseBranch);
-  const testResult = runTests(worktree, testCommand);
+  // Scope tests to the mind's owned paths — don't run the full suite
+  const scopedCommand = scopeTestCommand(testCommand, mind);
+  const testResult = runTests(worktree, scopedCommand);
   const boundaryResult = checkBoundary(worktree, baseBranch, mind);
 
   return {
@@ -92,6 +94,22 @@ function checkBoundary(
     passed: findings.length === 0,
     findings,
   };
+}
+
+/**
+ * Scope the test command to the mind's owned directories.
+ * "bun test" + owns ["packages/core/**"] → "bun test packages/core/"
+ */
+function scopeTestCommand(testCommand: string, mind: Mind): string {
+  // Extract directory prefixes from owns patterns (strip trailing ** and *)
+  const dirs = mind.owns
+    .map((pattern) => pattern.replace(/\/?\*+$/, ""))
+    .filter(Boolean);
+
+  if (dirs.length === 0) return testCommand;
+
+  // Append scoped directories to the test command
+  return `${testCommand} ${dirs.join(" ")}`;
 }
 
 /**

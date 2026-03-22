@@ -227,6 +227,19 @@ async function reviewDrone(
         const status = finalVerdict.approved ? "APPROVED" : "REJECTED";
         console.log(`  [${drone.mind}] ${status} (${finalVerdict.findings.length} findings)`);
 
+        // Log findings for debugging
+        if (finalVerdict.findings.length > 0) {
+          for (const f of finalVerdict.findings) {
+            const loc = f.file ? ` (${f.file}${f.line ? `:${f.line}` : ""})` : "";
+            console.log(`    ${f.severity}: ${f.message}${loc}`);
+          }
+        }
+
+        // Log test status
+        if (!checks.testsPass) {
+          console.log(`    [tests FAILED] ${checks.testOutput.slice(-200)}`);
+        }
+
         return { verdict: finalVerdict, checks, iteration };
       },
 
