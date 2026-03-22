@@ -56,6 +56,10 @@ export interface CheckResults {
   boundaryPass: boolean;
   /** Specific boundary violations */
   boundaryFindings: Finding[];
+  /** Whether contract annotations (produces/consumes) are satisfied */
+  contractsPass: boolean;
+  /** Contract violation findings */
+  contractFindings: Finding[];
 }
 
 /** A single finding from a review or check. */

@@ -8,6 +8,7 @@
 import type { Mind, CheckResults, Finding } from "../types.ts";
 import { DEFAULT_NEVER_MODIFY } from "../types.ts";
 import { matchesGlob } from "./utils.ts";
+import { parseAnnotations, verifyContracts } from "./contracts.ts";
 
 /**
  * Run all deterministic checks on a drone's worktree.
@@ -18,6 +19,7 @@ export async function runChecks(
   mind: Mind,
   testCommand: string,
   neverModify?: string[],
+  tasksContent?: string,
 ): Promise<CheckResults> {
   const diff = getDiff(worktree, baseBranch);
   // Scope tests to the mind's owned paths — don't run the full suite
@@ -25,12 +27,24 @@ export async function runChecks(
   const testResult = runTests(worktree, scopedCommand);
   const boundaryResult = checkBoundary(worktree, baseBranch, mind, neverModify);
 
+  // Contract verification: check produces/consumes annotations against the filesystem
+  let contractFindings: Finding[] = [];
+  if (tasksContent) {
+    const mindName = mind.name.replace(/^@/, "");
+    const annotations = parseAnnotations(tasksContent, mindName);
+    if (annotations.length > 0) {
+      contractFindings = verifyContracts(annotations, worktree, mind.owns);
+    }
+  }
+
   return {
     diff,
     testsPass: testResult.passed,
     testOutput: testResult.output,
     boundaryPass: boundaryResult.passed,
     boundaryFindings: boundaryResult.findings,
+    contractsPass: contractFindings.length === 0,
+    contractFindings,
   };
 }
 

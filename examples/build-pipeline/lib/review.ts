@@ -67,6 +67,16 @@ export function applyForceRejections(
     findings.push(...checks.boundaryFindings);
   }
 
+  // Contract violation → reject, even if LLM approved
+  if (!checks.contractsPass && approved) {
+    approved = false;
+    findings.push({
+      severity: "error",
+      message: "Contract verification failed — deterministic rejection (overrides LLM approval)",
+    });
+    findings.push(...checks.contractFindings);
+  }
+
   return { approved, findings };
 }
 

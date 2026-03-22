@@ -35,7 +35,7 @@ export async function reviewDrone(
   const memoryForReview = formatMemoryForReview(drone.memory);
 
   // Track last check results for approve-with-warnings decision
-  const state = { lastTestsPass: true, lastBoundaryPass: true };
+  const state = { lastTestsPass: true, lastBoundaryPass: true, lastContractsPass: true };
 
   try {
     await feedbackLoop({
@@ -52,6 +52,13 @@ export async function reviewDrone(
         });
         console.log(`  [${drone.mind}] Done — running checks`);
 
+        // Build raw tasks text for contract verification
+        const rawTasksText = taskGroups
+          .flatMap((g) => g.tasks.map((t) =>
+            `- [ ] ${t.id} ${t.mind}${t.parallel ? " [P]" : ""} ${t.description}`
+          ))
+          .join("\n");
+
         // Deterministic checks
         const checks = await runChecks(
           drone.session.cwd,
@@ -59,6 +66,7 @@ export async function reviewDrone(
           mind,
           config.testCommand,
           config.neverModify,
+          rawTasksText,
         );
 
         // LLM review
@@ -98,6 +106,7 @@ export async function reviewDrone(
         // Track for approve-with-warnings
         state.lastTestsPass = checks.testsPass;
         state.lastBoundaryPass = checks.boundaryPass;
+        state.lastContractsPass = checks.contractsPass;
 
         return { verdict: finalVerdict, checks, iteration };
       },
@@ -129,7 +138,7 @@ export async function reviewDrone(
     return { mind: drone.mind, session: drone.session, approved: true };
   } catch (err) {
     if (err instanceof MaxIterationsExceeded) {
-      if (state.lastTestsPass && state.lastBoundaryPass) {
+      if (state.lastTestsPass && state.lastBoundaryPass && state.lastContractsPass) {
         console.log(`  [${drone.mind}] Max iterations — approving with warnings (soft failures only)`);
         return { mind: drone.mind, session: drone.session, approved: true };
       }

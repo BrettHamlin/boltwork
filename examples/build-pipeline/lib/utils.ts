@@ -39,3 +39,10 @@ export function extractJson(raw: string): string {
   }
   return raw.trim();
 }
+
+/**
+ * Escape a string for use in a RegExp.
+ */
+export function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

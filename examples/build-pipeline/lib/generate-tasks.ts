@@ -13,7 +13,7 @@ import { dirname } from "path";
 import { llmCall } from "boltwork";
 import type { Mind, TaskGroup } from "../types.ts";
 import { parseTaskContent } from "./tasks.ts";
-import { extractJson, matchesGlob, normalizeMindName } from "./utils.ts";
+import { extractJson, matchesGlob, normalizeMindName, escapeRegExp } from "./utils.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,10 +129,21 @@ DO include:
 - Unit test tasks (the drone handles test file placement)
 - Dependencies between minds (dependsOn)
 - For new minds: ownsFiles declaring what directories they own
+- Contract annotations for cross-mind dependencies (see below)
 
 DO NOT include:
 - File path specifications for tests
 - Test framework instructions (detected automatically)
+
+## Contract Annotations
+
+When a task creates a new export that other minds will use, add a produces annotation:
+  "description": "Add getRecentRequests function (produces: getRecentRequests at packages/core/index.ts)"
+
+When a task imports something from another mind, add a consumes annotation:
+  "description": "Import getRecentRequests (consumes: getRecentRequests from packages/core/index.ts)"
+
+These are verified deterministically after the drone finishes — if a produces annotation says a symbol is exported from a file and it isn't, the build fails.
 
 Return ONLY this JSON structure:
 {
@@ -150,8 +161,9 @@ Return ONLY this JSON structure:
 
 Rules:
 - Each task stays within ONE mind's owns boundary
-- Do NOT put specific file paths in task descriptions
+- Do NOT put specific file paths in task descriptions (EXCEPT in produces/consumes annotations)
 - dependsOn lists minds whose work this mind depends on
+- Use produces/consumes annotations when tasks create or import cross-mind interfaces
 - Return ONLY the JSON. No explanation.`;
 }
 
@@ -190,12 +202,6 @@ function assembleTasksMd(ticketId: string, result: LlmTasksResult): string {
 }
 
 // ---------------------------------------------------------------------------
-// Utilities — ported from Gravitas
-// ---------------------------------------------------------------------------
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 /** Add depends on annotation to a mind's section header. */
 function addDependsOnToHeader(content: string, mindName: string, depName: string): string {
