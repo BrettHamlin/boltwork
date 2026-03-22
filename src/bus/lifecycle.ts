@@ -1,9 +1,8 @@
 /**
  * Bus Lifecycle
  *
- * Start and stop the bus server.
- * Uses a tmux pane for isolation — the bus survives regardless of
- * what happens to the parent process.
+ * Start and stop the bus server as a background process.
+ * Includes health monitoring to restart the bus if it dies.
  */
 
 import { resolve, dirname } from "path";
@@ -13,9 +12,7 @@ export interface BusHandle {
   url: string;
   /** The port the bus is listening on */
   port: number;
-  /** The tmux pane ID running the bus */
-  paneId: string;
-  /** Stop the bus server */
+  /** Stop the bus server and health monitor */
   stop(): void;
 }
 
@@ -24,15 +21,13 @@ export interface StartBusOptions {
   port?: number;
 }
 
+// Keep strong references so GC doesn't collect them
+const activeBuses = new Map<number, { proc: ReturnType<typeof Bun.spawn>; monitor: Timer }>();
+
 /**
- * Start the bus server in a tmux pane.
+ * Start the bus server as a background process.
+ * Monitors health and restarts if it dies.
  * Waits for the health check to confirm it's ready.
- *
- * ```ts
- * const bus = await startBus({ port: 8080 });
- * // ... run your pipeline ...
- * bus.stop();
- * ```
  */
 export async function startBus(options?: StartBusOptions): Promise<BusHandle> {
   const port = options?.port ?? 8080;
@@ -42,11 +37,9 @@ export async function startBus(options?: StartBusOptions): Promise<BusHandle> {
   try {
     const res = await fetch(`${url}/health`);
     if (res.ok) {
-      // Bus already running — return a handle that doesn't kill it on stop
       return {
         url,
         port,
-        paneId: "",
         stop() { /* external bus — don't kill it */ },
       };
     }
@@ -56,21 +49,33 @@ export async function startBus(options?: StartBusOptions): Promise<BusHandle> {
 
   const serverScript = resolve(dirname(import.meta.path), "server.ts");
 
-  // Start in a tmux pane so it's fully independent of this process
-  const split = Bun.spawnSync([
-    "tmux", "split-window", "-h", "-d", "-P", "-F", "#{pane_id}",
-  ]);
-  if (split.exitCode !== 0) {
-    throw new Error(`Failed to create bus tmux pane: ${split.stderr.toString().trim()}`);
+  function spawnBus(): ReturnType<typeof Bun.spawn> {
+    return Bun.spawn(["bun", "run", serverScript], {
+      env: { ...process.env, BOLTWORK_BUS_PORT: String(port) },
+      stdout: "ignore",
+      stderr: "ignore",
+    });
   }
-  const paneId = split.stdout.toString().trim();
 
-  // Rebalance tmux layout
-  Bun.spawnSync(["tmux", "select-layout", "tiled"]);
+  let proc = spawnBus();
 
-  // Send the bus server command to the pane
-  const cmd = `BOLTWORK_BUS_PORT=${port} bun run ${serverScript}`;
-  Bun.spawnSync(["tmux", "send-keys", "-t", paneId, cmd, "Enter"]);
+  // Health monitor — restart bus if it dies
+  const monitor = setInterval(async () => {
+    try {
+      const res = await fetch(`${url}/health`);
+      if (!res.ok) throw new Error("unhealthy");
+    } catch {
+      // Bus is dead — restart it
+      try { proc.kill(); } catch { /* already dead */ }
+      proc = spawnBus();
+      // Update the stored reference
+      const entry = activeBuses.get(port);
+      if (entry) entry.proc = proc;
+    }
+  }, 5_000);
+
+  // Store strong references
+  activeBuses.set(port, { proc, monitor });
 
   // Wait for the server to be ready
   const maxWait = 10_000;
@@ -83,9 +88,13 @@ export async function startBus(options?: StartBusOptions): Promise<BusHandle> {
         return {
           url,
           port,
-          paneId,
           stop() {
-            Bun.spawnSync(["tmux", "kill-pane", "-t", paneId]);
+            clearInterval(monitor);
+            const entry = activeBuses.get(port);
+            if (entry) {
+              try { entry.proc.kill(); } catch { /* already dead */ }
+              activeBuses.delete(port);
+            }
           },
         };
       }
@@ -95,7 +104,8 @@ export async function startBus(options?: StartBusOptions): Promise<BusHandle> {
     await Bun.sleep(200);
   }
 
-  // Failed to start — clean up
-  Bun.spawnSync(["tmux", "kill-pane", "-t", paneId]);
+  clearInterval(monitor);
+  proc.kill();
+  activeBuses.delete(port);
   throw new Error(`Bus server failed to start on port ${port} within ${maxWait}ms`);
 }
