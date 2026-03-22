@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TICKET_ID}} — Change Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0d1117; --bg-card: #161b22; --bg-code: #1c2129;
+  --border: #30363d; --border-light: #21262d;
+  --text-1: #e6edf3; --text-2: #8b949e; --text-3: #6e7681;
+  --blue: #58a6ff; --green: #3fb950; --amber: #d29922; --red: #f85149; --cyan: #39d2c0;
+  --kw: #ff7b72; --str: #a5d6ff; --fn: #d2a8ff; --num: #79c0ff;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Inter',-apple-system,system-ui,sans-serif; background:var(--bg); color:var(--text-2); -webkit-font-smoothing:antialiased; }
+.page { max-width:860px; margin:0 auto; padding:48px 32px 80px; }
+
+.header { margin-bottom:32px; }
+.header-label { font-size:11px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:var(--text-3); margin-bottom:8px; }
+.header h1 { font-size:28px; font-weight:700; color:var(--text-1); line-height:1.25; margin-bottom:12px; }
+.summary { font-size:16px; color:var(--text-1); line-height:1.8; background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:20px 24px; }
+
+.stats { display:flex; gap:12px; margin:20px 0 32px; flex-wrap:wrap; }
+.stat { padding:10px 16px; background:var(--bg-card); border:1px solid var(--border-light); border-radius:6px; text-align:center; min-width:80px; }
+.stat-val { font-size:20px; font-weight:700; color:var(--text-1); }
+.stat-val.g { color:var(--green); } .stat-val.r { color:var(--red); }
+.stat-label { font-size:11px; color:var(--text-3); margin-top:2px; }
+
+.section { margin:36px 0; }
+.section-title { font-size:16px; font-weight:600; color:var(--text-1); margin-bottom:16px; padding-bottom:8px; border-bottom:1px solid var(--border-light); }
+
+.criterion { background:var(--bg-card); border:1px solid var(--border-light); border-radius:8px; margin:10px 0; overflow:hidden; }
+.c-header { display:flex; align-items:center; gap:12px; padding:14px 18px; cursor:pointer; user-select:none; }
+.c-header:hover { background:rgba(255,255,255,0.02); }
+.c-status { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; flex-shrink:0; }
+.c-status.pass { background:rgba(63,185,80,0.15); color:var(--green); }
+.c-status.partial { background:rgba(210,153,34,0.15); color:var(--amber); }
+.c-status.missing { background:rgba(248,81,73,0.15); color:var(--red); }
+.c-text { flex:1; font-size:15px; color:var(--text-1); line-height:1.5; }
+.c-arrow { font-size:12px; color:var(--text-3); transition:transform .15s; }
+.c-arrow.open { transform:rotate(90deg); }
+.c-body { display:none; border-top:1px solid var(--border-light); }
+.c-body.open { display:block; }
+
+.ev { padding:14px 18px; border-bottom:1px solid var(--border-light); }
+.ev:last-child { border-bottom:none; }
+.ev-file { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--blue); margin-bottom:6px; }
+.ev-explain { font-size:13px; color:var(--text-2); margin-bottom:8px; line-height:1.6; }
+.ev-diff { background:var(--bg-code); border:1px solid var(--border-light); border-radius:6px; overflow-x:auto; font-family:'JetBrains Mono',monospace; font-size:13px; }
+.diff-line { display:flex; padding:0; line-height:1.55; }
+.diff-line.addition { background:rgba(46,160,67,0.15); }
+.diff-line.deletion { background:rgba(248,81,73,0.15); }
+.diff-marker { width:32px; min-width:32px; text-align:center; color:var(--text-3); user-select:none; padding:1px 0; flex-shrink:0; }
+.diff-line.addition .diff-marker { color:var(--green); }
+.diff-line.deletion .diff-marker { color:var(--red); }
+.diff-code { padding:1px 12px 1px 0; white-space:pre; flex:1; }
+/* Syntax colors */
+.s-kw { color:var(--kw); } .s-str { color:var(--str); } .s-fn { color:var(--fn); }
+.s-num { color:var(--num); } .s-cm { color:var(--text-3); font-style:italic; }
+.s-type { color:var(--cyan); }
+
+.flow-box { background:var(--bg-card); border:1px solid var(--border-light); border-radius:8px; padding:24px; display:flex; justify-content:center; overflow-x:auto; margin:12px 0; }
+.flow-fallback { background:var(--bg-code); border:1px solid var(--border-light); border-radius:6px; padding:16px 20px; font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--text-2); white-space:pre; line-height:1.5; overflow-x:auto; margin:12px 0; }
+
+.notes { background:rgba(210,153,34,0.06); border:1px solid rgba(210,153,34,0.12); border-left:3px solid var(--amber); border-radius:6px; padding:16px 20px; margin:12px 0; }
+.notes-label { font-size:10px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--amber); margin-bottom:10px; }
+.notes ul { list-style:none; }
+.notes li { padding:4px 0 4px 16px; position:relative; color:var(--text-1); font-size:14px; line-height:1.7; }
+.notes li::before { content:''; position:absolute; left:0; top:13px; width:4px; height:4px; border-radius:50%; background:var(--amber); opacity:.6; }
+
+.footer { margin-top:48px; padding-top:14px; border-top:1px solid var(--border-light); display:flex; justify-content:space-between; font-size:11px; color:var(--text-3); }
+.footer-brand span { color:var(--blue); font-weight:600; }
+</style>
+</head>
+<body>
+<div class="page" id="app">Loading report...</div>
+
+<script>
+// Data injected by report generator
+var DATA = {{REPORT_DATA}};
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// Simple syntax highlighter for TypeScript-like code
+function highlight(code) {
+  var s = esc(code);
+  // Strings (single and double quoted)
+  s = s.replace(/(["'])((?:(?!\1)[^\\]|\\.)*)(\1)/g, '<span class="s-str">$1$2$3</span>');
+  // Template literals
+  s = s.replace(/(`[^`]*`)/g, '<span class="s-str">$1</span>');
+  // Comments
+  s = s.replace(/(\/\/.*)/g, '<span class="s-cm">$1</span>');
+  // Keywords
+  s = s.replace(/\b(import|export|from|const|let|var|function|return|if|else|new|async|await|class|type|interface|extends|implements|readonly|static|public|private|protected|for|of|in|while|do|switch|case|default|break|continue|throw|try|catch|finally|void|typeof|instanceof|true|false|null|undefined|this)\b/g, '<span class="s-kw">$1</span>');
+  // Types
+  s = s.replace(/\b(string|number|boolean|any|void|never|unknown|Promise|Array|Record|Map|Set)\b/g, '<span class="s-type">$1</span>');
+  // Numbers
+  s = s.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="s-num">$1</span>');
+  // Function calls
+  s = s.replace(/\b([a-zA-Z_]\w*)\s*\(/g, '<span class="s-fn">$1</span>(');
+  return s;
+}
+
+function colorDiff(raw) {
+  return raw.split('\n').filter(function(l) { return l.length > 0; }).map(function(line) {
+    var prefix = line.charAt(0);
+    var code = (prefix === '+' || prefix === '-') ? line.slice(1) : line;
+    var hl = highlight(code);
+    var type = prefix === '+' ? 'addition' : prefix === '-' ? 'deletion' : 'context';
+    var marker = prefix === '+' ? '+' : prefix === '-' ? '-' : ' ';
+
+    return '<div class="diff-line ' + type + '"><div class="diff-marker">' + marker + '</div><div class="diff-code">' + hl + '</div></div>';
+  }).join('');
+}
+
+function render() {
+  var D = DATA;
+  var h = '';
+
+  // Header
+  h += '<div class="header">';
+  h += '<div class="header-label">Change Report</div>';
+  h += '<h1>' + esc(D.ticketId) + '</h1>';
+  h += '<div class="summary">' + esc(D.summary) + '</div>';
+  h += '</div>';
+
+  // Stats
+  h += '<div class="stats">';
+  h += '<div class="stat"><div class="stat-val">' + D.stats.files + '</div><div class="stat-label">Files</div></div>';
+  h += '<div class="stat"><div class="stat-val g">+' + D.stats.added + '</div><div class="stat-label">Added</div></div>';
+  h += '<div class="stat"><div class="stat-val r">-' + D.stats.removed + '</div><div class="stat-label">Removed</div></div>';
+  h += '<div class="stat"><div class="stat-val">' + D.stats.created + '</div><div class="stat-label">Created</div></div>';
+  h += '<div class="stat"><div class="stat-val">' + D.stats.modified + '</div><div class="stat-label">Modified</div></div>';
+  h += '</div>';
+
+  // Spec vs Evidence
+  h += '<div class="section"><div class="section-title">Spec vs. Evidence</div>';
+  D.criteria.forEach(function(c, i) {
+    var icon = c.status === 'pass' ? '✓' : c.status === 'partial' ? '~' : '✗';
+    h += '<div class="criterion">';
+    h += '<div class="c-header" onclick="toggle(' + i + ')">';
+    h += '<div class="c-status ' + c.status + '">' + icon + '</div>';
+    h += '<div class="c-text">' + esc(c.requirement) + '</div>';
+    h += '<div class="c-arrow" id="arrow-' + i + '">▶</div>';
+    h += '</div>';
+    h += '<div class="c-body" id="body-' + i + '">';
+
+    c.evidence.forEach(function(ev) {
+      h += '<div class="ev">';
+      h += '<div class="ev-file">' + esc(ev.file) + '</div>';
+      h += '<div class="ev-explain">' + esc(ev.explanation) + '</div>';
+      h += '<div class="ev-diff">' + colorDiff(ev.diff) + '</div>';
+      h += '</div>';
+    });
+
+    h += '</div></div>';
+  });
+  h += '</div>';
+
+  // Flow diagram
+  if (D.flow) {
+    h += '<div class="section"><div class="section-title">Flow</div>';
+    h += '<div class="flow-box"><pre class="mermaid">' + D.flow + '</pre></div>';
+    h += '</div>';
+  }
+
+  // Notes
+  if (D.notes && D.notes.length > 0) {
+    h += '<div class="section"><div class="notes">';
+    h += '<div class="notes-label">Reviewer Notes</div><ul>';
+    D.notes.forEach(function(n) { h += '<li>' + esc(n) + '</li>'; });
+    h += '</ul></div></div>';
+  }
+
+  // Footer
+  h += '<div class="footer"><div class="footer-brand"><span>bolt</span>work</div><div>{{TIMESTAMP}}</div></div>';
+
+  document.getElementById('app').innerHTML = h;
+
+  // Try to render mermaid
+  loadMermaid();
+}
+
+function toggle(i) {
+  var body = document.getElementById('body-' + i);
+  var arrow = document.getElementById('arrow-' + i);
+  body.classList.toggle('open');
+  arrow.classList.toggle('open');
+}
+
+function loadMermaid() {
+  import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs').then(function(mod) {
+    mod.default.initialize({
+      startOnLoad: false,
+      theme: 'dark',
+      themeVariables: {
+        darkMode: true, background: '#161b22',
+        primaryColor: '#1e3a5f', primaryTextColor: '#e6edf3',
+        primaryBorderColor: '#58a6ff', lineColor: '#30363d',
+        fontFamily: 'Inter, sans-serif', fontSize: '13px',
+      },
+      flowchart: { htmlLabels: true, curve: 'basis', padding: 16 },
+    });
+    mod.default.run({ querySelector: '.mermaid' }).catch(function() {
+      // Fallback: show raw diagram text
+      document.querySelectorAll('.mermaid').forEach(function(el) {
+        var raw = el.textContent;
+        el.parentElement.outerHTML = '<pre class="flow-fallback">' + esc(raw) + '</pre>';
+      });
+    });
+  }).catch(function() {
+    // Mermaid CDN unavailable — show raw text
+    document.querySelectorAll('.mermaid').forEach(function(el) {
+      var raw = el.textContent;
+      el.parentElement.outerHTML = '<pre class="flow-fallback">' + esc(raw) + '</pre>';
+    });
+  });
+}
+
+render();
+</script>
+</body>
+</html>
