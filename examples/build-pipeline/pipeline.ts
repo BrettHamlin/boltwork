@@ -41,6 +41,9 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
 
   // Load inputs
   const minds = await loadRegistry(config.registryPath);
+  const standards = config.standardsPath
+    ? await Bun.file(config.standardsPath).text().catch(() => "")
+    : "";
 
   // Generate or load tasks
   let taskGroups;
@@ -79,7 +82,7 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
       // Review each drone with feedback loop (parallel)
       const waveResults = await Promise.all(
         drones.map((drone) =>
-          reviewDrone(drone, config, minds, taskGroups, bus.url, baseBranch, maxIterations, droneTimeout),
+          reviewDrone(drone, config, minds, taskGroups, bus.url, baseBranch, maxIterations, droneTimeout, standards),
         ),
       );
 
@@ -197,6 +200,7 @@ async function reviewDrone(
   baseBranch: string,
   maxIterations: number,
   timeout: number,
+  standards: string,
 ): Promise<DroneResult> {
   const mind = findMind(minds, drone.mind)!;
   const tasks = formatTasksForBrief(taskGroups, drone.mind);
@@ -239,6 +243,7 @@ async function reviewDrone(
           diff: checks.diff,
           testOutput: checks.testOutput,
           tasks,
+          standards: standards || undefined,
           memory: memoryForReview || undefined,
           previousFeedback: previousFeedback || undefined,
           model: config.reviewModel,

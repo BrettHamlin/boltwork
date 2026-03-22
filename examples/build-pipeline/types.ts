@@ -101,6 +101,8 @@ export interface PipelineConfig {
   taskModel?: string;
   /** Additional files that drones should never modify. Added to the default list. */
   neverModify?: string[];
+  /** Path to a coding standards file. Injected into the review prompt. */
+  standardsPath?: string;
 }
 
 /**
