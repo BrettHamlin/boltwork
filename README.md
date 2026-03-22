@@ -4,6 +4,16 @@ Composable primitives for AI agent pipelines. Built around [Claude Code](https:/
 
 **Spawn autonomous Claude Code sessions, coordinate them with an event bus, review their work, send feedback, and enforce hard safety gates — all from a TypeScript script.**
 
+### Design Philosophy
+
+**If it CAN be code, it SHOULD be code.** LLMs are good at judgment, bad at mechanical work. boltwork makes the mechanical parts deterministic and testable. The LLM only gets called when you need judgment.
+
+**No framework, no DSL.** Pipelines are regular TypeScript async functions. You compose primitives with normal language features — function calls, loops, if/else, try/catch. Nothing to learn except the primitives themselves.
+
+**Each primitive does one thing.** `llmCall` sends a prompt. `gate` checks a boolean. `spawnSession` launches a session. They don't know about each other. You compose them.
+
+### How it works
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Your pipeline script (TypeScript)                              │
@@ -20,25 +30,26 @@ Composable primitives for AI agent pipelines. Built around [Claude Code](https:/
 
 ### What this looks like at runtime
 
+Your pipeline script orchestrates everything from one tmux pane. Each Claude Code session runs in its own pane with its own git worktree — fully isolated, working in parallel.
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ tmux                                                            │
 │                                                                 │
 │  pane 1: bun run pipeline.ts          ← your script             │
-│          (orchestrates everything)       starts bus, spawns      │
-│                                          sessions, reviews work  │
+│          (orchestrates everything)                               │
 │                                                                 │
-│  pane 2: claude (session A)           ← isolated worktree       │
-│          working on task A...            writes code, runs tests │
+│  pane 2: Claude Code (session A)      ← isolated worktree       │
+│          working on task A...                                    │
 │          signals "done" ──────────────→  bus event               │
 │                                                                 │
-│  pane 3: claude (session B)           ← another worktree        │
-│          working on task B...            runs in parallel        │
+│  pane 3: Claude Code (session B)      ← another worktree        │
+│          working on task B...                                    │
 │          signals "done" ──────────────→  bus event               │
 │                                                                 │
 │  pane 1: both done → reviewing...                               │
-│          session A: tests fail → send feedback to pane 2        │
-│          session B: approved                                    │
+│          session A: tests fail → sends feedback to session A     │
+│          session B: approved                                     │
 │                                                                 │
 │  pane 2: received feedback, fixing...                           │
 │          signals "done" ──────────────→  bus event               │
@@ -51,7 +62,7 @@ Composable primitives for AI agent pipelines. Built around [Claude Code](https:/
 ### Why boltwork?
 
 - **Spawn isolated Claude Code sessions** in their own git worktrees — multiple agents work in parallel without conflicts
-- **Event-driven coordination** — sessions signal completion via an HTTP event bus, no polling
+- **Event-driven coordination** — sessions signal completion via the event bus, no polling
 - **Feedback loops that preserve context** — send corrections to the same session, it remembers everything it already did
 - **Deterministic safety gates** — if tests fail, the pipeline rejects. No LLM can override a gate.
 - **One-shot LLM calls** for judgment — review code, analyze specs, compare screenshots. Deterministic code handles everything else.
@@ -144,16 +155,16 @@ await gateAsync(async () => {
 
 Start an isolated Claude Code session in a new tmux pane. Optionally creates a git worktree so the session works on its own branch without interfering with other sessions or your main codebase.
 
-When you pass `signalChannel`, boltwork automatically wires a Claude Code Stop hook that publishes an event to the bus when the session finishes. Your pipeline script listens for that event with `waitForSignal`.
+When you pass `signalChannel`, boltwork automatically wires a completion hook — when the session finishes, it publishes an event to the bus. Your pipeline script listens for that event with `waitForSignal`.
 
 ```typescript
 import { spawnSession } from "boltwork";
 
-const drone = await spawnSession({
+const session = await spawnSession({
   brief: "Implement the login page. Run tests when done.",
   worktree: true,                  // isolated git branch
   branch: "feat/login",
-  signalChannel: "ticket-123",     // wires Stop hook → bus event
+  signalChannel: "ticket-123",     // auto-signals on completion
   model: "sonnet",
   files: {                         // write files before launch
     "INSTRUCTIONS.md": briefContent,
@@ -161,29 +172,29 @@ const drone = await spawnSession({
 });
 
 // Check if alive
-if (await drone.alive()) { /* still running */ }
+if (await session.alive()) { /* still running */ }
 
 // Send feedback to the SAME session (preserves full context)
-await drone.sendFeedback("Tests failed. Fix the auth handler.");
+await session.sendFeedback("Tests failed. Fix the auth handler.");
 
 // Clean up when done
-await drone.kill();
-await drone.cleanupWorktree();
+await session.kill();
+await session.cleanupWorktree();
 ```
 
 ### publish / waitForSignal — Signal Bus
 
-Event-driven communication between your pipeline script and Claude Code sessions. Sessions publish events when they finish work. Your script waits for those events. No polling — the bus pushes events via Server-Sent Events (SSE).
+Event-driven communication between your pipeline script and Claude Code sessions. Sessions publish events when they finish work. Your script waits for those events. No polling.
 
 ```typescript
 import { publish, waitForSignal } from "boltwork";
 
 // Publish a signal
-await publish("ticket-123", "HOOK_Stop", { source: "drone:auth" });
+await publish("ticket-123", "HOOK_Stop", { source: "session:auth" });
 
 // Wait for a signal (blocks until it arrives or times out)
 const event = await waitForSignal("ticket-123", "HOOK_Stop");
-console.log(event.payload.source); // "drone:auth"
+console.log(event.payload.source); // "session:auth"
 
 // With custom timeout
 const event = await waitForSignal("ticket-123", "HOOK_Stop", {
@@ -193,7 +204,9 @@ const event = await waitForSignal("ticket-123", "HOOK_Stop", {
 
 ### feedbackLoop — Check, Feedback, Retry
 
-The review cycle. Your script checks the session's work (run tests, LLM review, whatever). If it fails, boltwork sends your feedback message into the same Claude Code session via `tmux send-keys`. The session reads the feedback, has full context of everything it already did, fixes the issues, and signals "done" again. Your script re-checks. Repeat until approved or max iterations.
+A feedback loop for iterating on a session's work. Define a check, a pass condition, and a feedback message. If the check fails, boltwork sends feedback to the same session — the session fixes the issues and signals completion again. The loop repeats until approved or max iterations.
+
+The session stays alive between iterations — no context is lost.
 
 ```typescript
 import { feedbackLoop, waitForSignal } from "boltwork";
@@ -201,14 +214,12 @@ import { feedbackLoop, waitForSignal } from "boltwork";
 const result = await feedbackLoop({
   name: "code-review",
   maxIterations: 3,
-  session: drone,
+  session,
 
   async check(iteration) {
-    // Wait for the session to signal it's done
     await waitForSignal("ticket-123", "HOOK_Stop");
 
-    // Run tests
-    const tests = Bun.spawnSync(["bun", "test"], { cwd: drone.cwd });
+    const tests = Bun.spawnSync(["bun", "test"], { cwd: session.cwd });
     return {
       passed: tests.exitCode === 0,
       output: tests.stderr.toString(),
@@ -225,11 +236,9 @@ const result = await feedbackLoop({
 });
 ```
 
-The session stays alive between iterations — no context is lost. This is critical for fix quality. A new session would have to re-read every file and re-discover every decision. The same session already knows what it did and can make targeted fixes.
-
 ## Event Bus
 
-The bus is an HTTP SSE server that routes events between your pipeline script and Claude Code sessions. Start it before spawning sessions that use signals.
+The bus is an HTTP server that routes events between your pipeline script and Claude Code sessions. Start it before spawning sessions that use signals.
 
 ### Start the bus programmatically
 
@@ -283,8 +292,8 @@ All primitives throw from a centralized set of error types:
 | Error | Thrown by | Meaning |
 |-------|----------|---------|
 | `GateRejection` | `gate`, `gateAsync` | A boolean check failed |
-| `LLMCallError` | `llmCall` | `claude -p` returned non-zero |
-| `SessionSpawnError` | `spawnSession` | tmux pane or worktree creation failed |
+| `LLMCallError` | `llmCall` | Claude Code call failed |
+| `SessionSpawnError` | `spawnSession` | Session creation failed |
 | `SignalTimeout` | `waitForSignal` | Timed out waiting for an event |
 | `SignalError` | `publish`, `waitForSignal` | Bus communication failed |
 | `MaxIterationsExceeded` | `feedbackLoop` | Loop exhausted all iterations |
@@ -320,31 +329,23 @@ async function implement(taskDescription: string) {
   const bus = await startBus();
 
   try {
-    // Spawn a Claude Code session in an isolated worktree.
-    // signalChannel wires a Stop hook — when the session finishes,
-    // it publishes "HOOK_Stop" to the bus automatically.
+    // Spawn a Claude Code session in an isolated worktree
     const session = await spawnSession({
       brief: taskDescription,
       worktree: true,
       signalChannel: "my-pipeline",
     });
 
-    // Feedback loop: wait for the session to finish, check its work,
-    // send feedback if needed. The session stays alive between
-    // iterations — full context preserved.
+    // Review loop: wait for completion, check work, send feedback if needed
     await feedbackLoop({
       name: "implementation-review",
       maxIterations: 3,
       session,
 
       async check() {
-        // Block until the session signals "done"
         await waitForSignal("my-pipeline", "HOOK_Stop");
 
-        // Run tests in the session's worktree
         const tests = Bun.spawnSync(["bun", "test"], { cwd: session.cwd });
-
-        // Ask Claude Code to review the diff
         const diff = Bun.spawnSync(["git", "diff", "HEAD~1"], { cwd: session.cwd });
         const review = await llmCall(
           `Review this diff for correctness:\n${diff.stdout.toString()}`
@@ -359,7 +360,6 @@ async function implement(taskDescription: string) {
       },
 
       passed(result) {
-        // Gate: tests override LLM judgment
         if (!result.testsPass) return false;
         return result.reviewApproved;
       },
@@ -372,7 +372,7 @@ async function implement(taskDescription: string) {
       },
     });
 
-    // Approved — merge the session's branch and clean up
+    // Approved — merge and clean up
     Bun.spawnSync(["git", "merge", session.branch!], { cwd: process.cwd() });
     await session.cleanupWorktree();
 
@@ -383,14 +383,6 @@ async function implement(taskDescription: string) {
 
 await implement("Add rate limiting to the /api/users endpoint");
 ```
-
-## Design Philosophy
-
-**If it CAN be code, it SHOULD be code.** LLMs are good at judgment, bad at mechanical work. boltwork makes the mechanical parts deterministic and testable. The LLM only gets called when you need judgment.
-
-**No framework, no DSL.** Pipelines are regular TypeScript async functions. You compose primitives with normal language features — function calls, loops, if/else, try/catch. Nothing to learn except the primitives themselves.
-
-**Each primitive does one thing.** `llmCall` sends a prompt. `gate` checks a boolean. `spawnSession` opens a tmux pane. They don't know about each other. You compose them.
 
 ## License
 
