@@ -30,7 +30,7 @@ Not every primitive needs all requirements. `gate` works with just Bun. `llmCall
 ```typescript
 import { llmCall, gate } from "boltwork";
 
-// Read a file, ask Claude to review it, gate on the result
+// Read a file, ask Claude Code to review it, gate on the result
 const code = await Bun.file("src/auth.ts").text();
 const review = await llmCall(`Review this code for bugs:\n\n${code}`);
 gate(review.includes("PASS"), "Code review must pass");
