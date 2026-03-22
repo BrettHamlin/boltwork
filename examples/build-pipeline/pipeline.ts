@@ -14,10 +14,12 @@ import {
   spawnSession,
   waitForSignal,
   feedbackLoop,
+  MaxIterationsExceeded,
   type SessionHandle,
 } from "boltwork";
 
 import type { PipelineConfig, Mind, TaskGroup } from "./types.ts";
+import { DEFAULT_NEVER_MODIFY } from "./types.ts";
 import { loadRegistry, findMind } from "./lib/registry.ts";
 import { loadMemory, formatMemoryForBrief, formatMemoryForReview } from "./lib/memory.ts";
 import { parseTasks, formatTasksForBrief } from "./lib/tasks.ts";
@@ -147,6 +149,9 @@ async function spawnDrone(
 
   const boundary = mind.owns.map((p) => `  - ${p}`).join("\n");
 
+  const neverModify = [...DEFAULT_NEVER_MODIFY, ...(config.neverModify ?? [])];
+  const neverModifyList = neverModify.map((f) => `  - ${f}`).join("\n");
+
   const brief = [
     `# ${config.ticketId} — ${mind.name}`,
     "",
@@ -155,6 +160,9 @@ async function spawnDrone(
     `## File Boundary`,
     `You may ONLY create or modify files within these paths:`,
     boundary,
+    "",
+    `**NEVER modify these files** (changes will always be rejected):`,
+    neverModifyList,
     "",
     memorySection,
     "",
@@ -194,6 +202,9 @@ async function reviewDrone(
   const tasks = formatTasksForBrief(taskGroups, drone.mind);
   const memoryForReview = formatMemoryForReview(drone.memory);
 
+  // Track last check results for approve-with-warnings decision
+  const state = { lastTestsPass: true, lastBoundaryPass: true };
+
   try {
     await feedbackLoop({
       name: `review-${drone.mind}`,
@@ -215,6 +226,7 @@ async function reviewDrone(
           baseBranch,
           mind,
           config.testCommand,
+          config.neverModify,
         );
 
         // LLM review
@@ -251,6 +263,10 @@ async function reviewDrone(
           console.log(`    [tests FAILED] ${checks.testOutput.slice(-200)}`);
         }
 
+        // Track for approve-with-warnings
+        state.lastTestsPass = checks.testsPass;
+        state.lastBoundaryPass = checks.boundaryPass;
+
         return { verdict: finalVerdict, checks, iteration };
       },
 
@@ -267,6 +283,11 @@ async function reviewDrone(
           result.checks.testOutput,
         );
 
+        // Exponential backoff: 5s → 15s → 45s (capped at 60s)
+        const backoff = Math.min(5_000 * Math.pow(3, result.iteration - 1), 60_000);
+        console.log(`  [${drone.mind}] Backoff ${backoff / 1000}s before sending feedback`);
+        await Bun.sleep(backoff);
+
         // Build the message sent to the session
         const findings = result.verdict.findings
           .map((f) => `- ${f.severity}: ${f.message}`)
@@ -277,6 +298,20 @@ async function reviewDrone(
 
     return { mind: drone.mind, session: drone.session, approved: true };
   } catch (err) {
+    if (err instanceof MaxIterationsExceeded) {
+      // Approve with warnings if only soft failures remain (no test/boundary/contract errors).
+      // Hard errors (tests, boundary) always fail — they can't be approved.
+      if (state.lastTestsPass && state.lastBoundaryPass) {
+        console.log(`  [${drone.mind}] Max iterations — approving with warnings (soft failures only)`);
+        return { mind: drone.mind, session: drone.session, approved: true };
+      }
+      return {
+        mind: drone.mind,
+        session: drone.session,
+        approved: false,
+        error: `Max iterations with hard failures: ${err.message}`,
+      };
+    }
     return {
       mind: drone.mind,
       session: drone.session,

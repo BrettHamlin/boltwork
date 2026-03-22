@@ -6,6 +6,7 @@
  */
 
 import type { Mind, CheckResults, Finding } from "../types.ts";
+import { DEFAULT_NEVER_MODIFY } from "../types.ts";
 
 /**
  * Run all deterministic checks on a drone's worktree.
@@ -15,12 +16,13 @@ export async function runChecks(
   baseBranch: string,
   mind: Mind,
   testCommand: string,
+  neverModify?: string[],
 ): Promise<CheckResults> {
   const diff = getDiff(worktree, baseBranch);
   // Scope tests to the mind's owned paths — don't run the full suite
   const scopedCommand = scopeTestCommand(testCommand, mind);
   const testResult = runTests(worktree, scopedCommand);
-  const boundaryResult = checkBoundary(worktree, baseBranch, mind);
+  const boundaryResult = checkBoundary(worktree, baseBranch, mind, neverModify);
 
   return {
     diff,
@@ -56,12 +58,15 @@ function runTests(
   };
 }
 
-/** Check that the drone only modified files within its boundary. */
+/** Check that the drone only modified files within its boundary and didn't touch never-modify files. */
 function checkBoundary(
   worktree: string,
   baseBranch: string,
   mind: Mind,
+  extraNeverModify?: string[],
 ): { passed: boolean; findings: Finding[] } {
+  const neverModify = [...DEFAULT_NEVER_MODIFY, ...(extraNeverModify ?? [])];
+
   // Get files the drone modified
   const logResult = Bun.spawnSync(
     ["git", "log", "--name-only", "--pretty=format:", `${baseBranch}..HEAD`],
@@ -80,6 +85,17 @@ function checkBoundary(
   const findings: Finding[] = [];
 
   for (const file of modifiedFiles) {
+    // Check never-modify list first (higher priority)
+    if (neverModify.some((nm) => file === nm || file.endsWith(`/${nm}`))) {
+      findings.push({
+        file,
+        severity: "error",
+        message: `Protected file modified: "${file}" is on the never-modify list`,
+      });
+      continue;
+    }
+
+    // Check boundary ownership
     const owned = mind.owns.some((pattern) => matchesGlob(file, pattern));
     if (!owned) {
       findings.push({

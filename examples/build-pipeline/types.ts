@@ -99,4 +99,20 @@ export interface PipelineConfig {
   tasksPath?: string;
   /** Model for task generation LLM call. Default: "sonnet" */
   taskModel?: string;
+  /** Additional files that drones should never modify. Added to the default list. */
+  neverModify?: string[];
 }
+
+/**
+ * Default files that drones must never modify.
+ * These are infrastructure files that should only be changed by humans.
+ */
+export const DEFAULT_NEVER_MODIFY = [
+  ".claude/settings.json",
+  ".claude/settings.local.json",
+  "CLAUDE.md",
+  ".claude/CLAUDE.md",
+  "package.json",
+  "bun.lock",
+  "tsconfig.json",
+];
