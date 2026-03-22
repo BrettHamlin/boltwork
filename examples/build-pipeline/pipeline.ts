@@ -2,32 +2,20 @@
  * Build Pipeline
  *
  * Opinionated build pipeline built on boltwork primitives.
- * Implements the full Gravitas flow: tasks → waves → parallel drones → review → merge.
+ * Orchestrates: tasks → waves → parallel drones → review → merge.
  *
  * Usage:
  *   bun run pipeline.ts --ticket BRE-700 --spec specs/BRE-700/spec.md
  */
 
-import {
-  startBus,
-  gate,
-  spawnSession,
-  waitForSignal,
-  feedbackLoop,
-  MaxIterationsExceeded,
-  type SessionHandle,
-} from "boltwork";
-
-import type { PipelineConfig, Mind, TaskGroup } from "./types.ts";
-import { DEFAULT_NEVER_MODIFY } from "./types.ts";
-import { loadRegistry, findMind } from "./lib/registry.ts";
-import { loadMemory, formatMemoryForBrief, formatMemoryForReview } from "./lib/memory.ts";
-import { parseTasks, formatTasksForBrief } from "./lib/tasks.ts";
+import { startBus, gate } from "boltwork";
+import type { PipelineConfig, PipelineResult, WaveResult } from "./types.ts";
+import { loadRegistry } from "./lib/registry.ts";
+import { parseTasks } from "./lib/tasks.ts";
 import { generateTasks } from "./lib/generate-tasks.ts";
 import { computeWaves } from "./lib/waves.ts";
-import { runChecks } from "./lib/checks.ts";
-import { runReview, applyForceRejections } from "./lib/review.ts";
-import { writeFeedback, loadPreviousFeedback } from "./lib/feedback.ts";
+import { spawnDrone } from "./lib/drone.ts";
+import { reviewDrone } from "./lib/review-loop.ts";
 import { mergeBranch, cleanupDrone } from "./lib/merge.ts";
 
 /**
@@ -92,7 +80,6 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
         for (const f of failed) {
           console.log(`  FAILED: ${f.mind} (${f.error})`);
         }
-        // Clean up all drones in this wave before aborting
         for (const result of waveResults) {
           await cleanupDrone(process.cwd(), result.session);
         }
@@ -131,230 +118,8 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
   return { config, waves: results, approved: allApproved };
 }
 
-/** Spawn a drone for a specific mind. */
-async function spawnDrone(
-  mindName: string,
-  config: PipelineConfig,
-  minds: Mind[],
-  taskGroups: TaskGroup[],
-  busUrl: string,
-  model: string,
-): Promise<DroneInfo> {
-  const mind = findMind(minds, mindName);
-  if (!mind) throw new Error(`Mind "${mindName}" not found in registry`);
-
-  // Build the brief
-  const taskSection = formatTasksForBrief(taskGroups, mindName);
-  const memory = config.memoryDir
-    ? await loadMemory(config.memoryDir, mindName)
-    : "";
-  const memorySection = formatMemoryForBrief(memory);
-
-  const boundary = mind.owns.map((p) => `  - ${p}`).join("\n");
-
-  const neverModify = [...DEFAULT_NEVER_MODIFY, ...(config.neverModify ?? [])];
-  const neverModifyList = neverModify.map((f) => `  - ${f}`).join("\n");
-
-  const brief = [
-    `# ${config.ticketId} — ${mind.name}`,
-    "",
-    taskSection,
-    "",
-    `## File Boundary`,
-    `You may ONLY create or modify files within these paths:`,
-    boundary,
-    "",
-    `**NEVER modify these files** (changes will always be rejected):`,
-    neverModifyList,
-    "",
-    memorySection,
-    "",
-    `When done, commit your changes with message: "feat: ${config.ticketId} ${mind.name} — <summary>"`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const channel = `boltwork-${config.ticketId}-${mindName.replace("@", "")}`;
-
-  const session = await spawnSession({
-    brief,
-    worktree: true,
-    branch: `boltwork/${config.ticketId}-${mindName.replace("@", "")}`,
-    signalChannel: channel,
-    busUrl,
-    model,
-  });
-
-  console.log(`  Spawned: ${mind.name} → ${session.branch}`);
-
-  return { mind: mindName, session, channel, memory };
-}
-
-/** Review a drone's work with the feedback loop. */
-async function reviewDrone(
-  drone: DroneInfo,
-  config: PipelineConfig,
-  minds: Mind[],
-  taskGroups: TaskGroup[],
-  busUrl: string,
-  baseBranch: string,
-  maxIterations: number,
-  timeout: number,
-  standards: string,
-): Promise<DroneResult> {
-  const mind = findMind(minds, drone.mind)!;
-  const tasks = formatTasksForBrief(taskGroups, drone.mind);
-  const memoryForReview = formatMemoryForReview(drone.memory);
-
-  // Track last check results for approve-with-warnings decision
-  const state = { lastTestsPass: true, lastBoundaryPass: true };
-
-  try {
-    await feedbackLoop({
-      name: `review-${drone.mind}`,
-      maxIterations,
-      session: drone.session,
-
-      async check(iteration) {
-        console.log(`  [${drone.mind}] Iteration ${iteration}: waiting...`);
-
-        await waitForSignal(drone.channel, "HOOK_Stop", {
-          busUrl,
-          timeout,
-        });
-        console.log(`  [${drone.mind}] Done — running checks`);
-
-        // Deterministic checks
-        const checks = await runChecks(
-          drone.session.cwd,
-          baseBranch,
-          mind,
-          config.testCommand,
-          config.neverModify,
-        );
-
-        // LLM review
-        const previousFeedback = await loadPreviousFeedback(
-          drone.session.cwd,
-          iteration,
-        );
-
-        const verdict = await runReview({
-          diff: checks.diff,
-          testOutput: checks.testOutput,
-          tasks,
-          standards: standards || undefined,
-          memory: memoryForReview || undefined,
-          previousFeedback: previousFeedback || undefined,
-          model: config.reviewModel,
-        });
-
-        // Force-rejections: deterministic overrides LLM
-        const finalVerdict = applyForceRejections(verdict, checks);
-
-        const status = finalVerdict.approved ? "APPROVED" : "REJECTED";
-        console.log(`  [${drone.mind}] ${status} (${finalVerdict.findings.length} findings)`);
-
-        // Log findings for debugging
-        if (finalVerdict.findings.length > 0) {
-          for (const f of finalVerdict.findings) {
-            const loc = f.file ? ` (${f.file}${f.line ? `:${f.line}` : ""})` : "";
-            console.log(`    ${f.severity}: ${f.message}${loc}`);
-          }
-        }
-
-        // Log test status
-        if (!checks.testsPass) {
-          console.log(`    [tests FAILED] ${checks.testOutput.slice(-200)}`);
-        }
-
-        // Track for approve-with-warnings
-        state.lastTestsPass = checks.testsPass;
-        state.lastBoundaryPass = checks.boundaryPass;
-
-        return { verdict: finalVerdict, checks, iteration };
-      },
-
-      passed(result) {
-        return result.verdict.approved;
-      },
-
-      async feedback(result) {
-        // Write feedback file to worktree
-        await writeFeedback(
-          drone.session.cwd,
-          result.iteration,
-          result.verdict,
-          result.checks.testOutput,
-        );
-
-        // Exponential backoff: 5s → 15s → 45s (capped at 60s)
-        const backoff = Math.min(5_000 * Math.pow(3, result.iteration - 1), 60_000);
-        console.log(`  [${drone.mind}] Backoff ${backoff / 1000}s before sending feedback`);
-        await Bun.sleep(backoff);
-
-        // Build the message sent to the session
-        const findings = result.verdict.findings
-          .map((f) => `- ${f.severity}: ${f.message}`)
-          .join("\n");
-        return `Your work was reviewed and needs changes:\n\n${findings}\n\nSee REVIEW-FEEDBACK-${result.iteration}.md for details. Fix these issues and commit again.`;
-      },
-    });
-
-    return { mind: drone.mind, session: drone.session, approved: true };
-  } catch (err) {
-    if (err instanceof MaxIterationsExceeded) {
-      // Approve with warnings if only soft failures remain (no test/boundary/contract errors).
-      // Hard errors (tests, boundary) always fail — they can't be approved.
-      if (state.lastTestsPass && state.lastBoundaryPass) {
-        console.log(`  [${drone.mind}] Max iterations — approving with warnings (soft failures only)`);
-        return { mind: drone.mind, session: drone.session, approved: true };
-      }
-      return {
-        mind: drone.mind,
-        session: drone.session,
-        approved: false,
-        error: `Max iterations with hard failures: ${err.message}`,
-      };
-    }
-    return {
-      mind: drone.mind,
-      session: drone.session,
-      approved: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
 /** Get the current git branch name. */
 function getCurrentBranch(): string {
   const result = Bun.spawnSync(["git", "branch", "--show-current"]);
   return result.stdout.toString().trim();
-}
-
-// --- Internal types ---
-
-interface DroneInfo {
-  mind: string;
-  session: SessionHandle;
-  channel: string;
-  memory: string;
-}
-
-interface DroneResult {
-  mind: string;
-  session: SessionHandle;
-  approved: boolean;
-  error?: string;
-}
-
-interface WaveResult {
-  wave: string;
-  drones: DroneResult[];
-}
-
-export interface PipelineResult {
-  config: PipelineConfig;
-  waves: WaveResult[];
-  approved: boolean;
 }

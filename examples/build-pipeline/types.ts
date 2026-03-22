@@ -105,6 +105,34 @@ export interface PipelineConfig {
   standardsPath?: string;
 }
 
+/** Info about a spawned drone — used to track it through the review loop. */
+export interface DroneInfo {
+  mind: string;
+  session: import("boltwork").SessionHandle;
+  channel: string;
+  memory: string;
+}
+
+/** Result of reviewing a drone's work. */
+export interface DroneResult {
+  mind: string;
+  session: import("boltwork").SessionHandle;
+  approved: boolean;
+  error?: string;
+}
+
+/** Result of a full pipeline run. */
+export interface PipelineResult {
+  config: PipelineConfig;
+  waves: WaveResult[];
+  approved: boolean;
+}
+
+export interface WaveResult {
+  wave: string;
+  drones: DroneResult[];
+}
+
 /**
  * Default files that drones must never modify.
  * These are infrastructure files that should only be changed by humans.
