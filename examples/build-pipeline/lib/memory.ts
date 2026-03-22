@@ -7,6 +7,7 @@
 
 import { readFile } from "fs/promises";
 import { join } from "path";
+import { normalizeMindName } from "./utils.ts";
 
 /**
  * Load memory entries for a mind. Returns empty string if no memory file exists.
@@ -14,7 +15,7 @@ import { join } from "path";
  * Memory files live at: {memoryDir}/{mindName}/MEMORY.md
  */
 export async function loadMemory(memoryDir: string, mindName: string): Promise<string> {
-  const name = mindName.replace(/^@/, "");
+  const name = normalizeMindName(mindName);
   const path = join(memoryDir, name, "MEMORY.md");
 
   try {

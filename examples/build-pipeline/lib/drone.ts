@@ -11,6 +11,7 @@ import { DEFAULT_NEVER_MODIFY } from "../types.ts";
 import { findMind } from "./registry.ts";
 import { loadMemory, formatMemoryForBrief } from "./memory.ts";
 import { formatTasksForBrief } from "./tasks.ts";
+import { normalizeMindName } from "./utils.ts";
 
 /**
  * Spawn a drone for a specific mind.
@@ -56,12 +57,12 @@ export async function spawnDrone(
     .filter(Boolean)
     .join("\n");
 
-  const channel = `boltwork-${config.ticketId}-${mindName.replace("@", "")}`;
+  const channel = `boltwork-${config.ticketId}-${normalizeMindName(mindName)}`;
 
   const session = await spawnSession({
     brief,
     worktree: true,
-    branch: `boltwork/${config.ticketId}-${mindName.replace("@", "")}`,
+    branch: `boltwork/${config.ticketId}-${normalizeMindName(mindName)}`,
     signalChannel: channel,
     busUrl,
     model,

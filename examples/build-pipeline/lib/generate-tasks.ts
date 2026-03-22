@@ -13,6 +13,7 @@ import { dirname } from "path";
 import { llmCall } from "boltwork";
 import type { Mind, TaskGroup } from "../types.ts";
 import { parseTaskContent } from "./tasks.ts";
+import { extractJson, matchesGlob, normalizeMindName } from "./utils.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,8 +65,8 @@ export async function generateTasks(
 
   // ── Step 2: Normalize mind names ──
   for (const mind of result.minds) {
-    mind.name = mind.name.replace(/^@/, "");
-    mind.dependsOn = mind.dependsOn.map((d) => d.replace(/^@/, ""));
+    mind.name = normalizeMindName(mind.name);
+    mind.dependsOn = mind.dependsOn.map((d) => normalizeMindName(d));
 
     if (!mind.isNew && !minds.some((m) => m.name === `@${mind.name}` || m.name === mind.name)) {
       console.log(`  Warning: LLM referenced non-existent mind @${mind.name}. Marking as new.`);
@@ -192,18 +193,6 @@ function assembleTasksMd(ticketId: string, result: LlmTasksResult): string {
 // Utilities — ported from Gravitas
 // ---------------------------------------------------------------------------
 
-/** Extract JSON from LLM output that may be wrapped in prose or code fences. */
-export function extractJson(raw: string): string {
-  const fenced = raw.match(/```(?:json)?\s*\n([\s\S]*?)\n\s*```/);
-  if (fenced) return fenced[1]!.trim();
-  const braceStart = raw.indexOf("{");
-  const braceEnd = raw.lastIndexOf("}");
-  if (braceStart !== -1 && braceEnd > braceStart) {
-    return raw.slice(braceStart, braceEnd + 1);
-  }
-  return raw.trim();
-}
-
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -244,9 +233,9 @@ function inferImplicitDependencies(
     while ((pathMatch = pathRe.exec(allDescs)) !== null) {
       const path = pathMatch[1]!;
       for (const regMind of minds) {
-        const regName = regMind.name.replace(/^@/, "");
+        const regName = normalizeMindName(regMind.name);
         if (regName === mind.name) continue;
-        if (regMind.owns.some((pattern) => matchesOwnership(path, pattern))) {
+        if (regMind.owns.some((pattern) => matchesGlob(path, pattern))) {
           implicitDeps.add(regName);
           break;
         }
@@ -263,14 +252,6 @@ function inferImplicitDependencies(
   return fixed;
 }
 
-/** Simple ownership check — does a file path match an owns glob? */
-function matchesOwnership(filePath: string, pattern: string): boolean {
-  const regex = pattern
-    .replace(/\*\*/g, "___DOUBLESTAR___")
-    .replace(/\*/g, "[^/]*")
-    .replace(/___DOUBLESTAR___/g, ".*");
-  return new RegExp(`^${regex}$`).test(filePath);
-}
 
 // ---------------------------------------------------------------------------
 // Lint + auto-fix
@@ -294,7 +275,7 @@ function lintTaskContent(content: string, minds: Mind[]): LintError[] {
     const [, taskId, mindRef] = taskMatch;
 
     // Check: mind exists in registry
-    const mindName = mindRef!.replace(/^@/, "");
+    const mindName = normalizeMindName(mindRef!);
     if (!minds.some((m) => m.name === `@${mindName}` || m.name === mindName)) {
       errors.push({
         type: "unknown_mind",

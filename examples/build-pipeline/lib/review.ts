@@ -8,6 +8,7 @@
 
 import { llmCall } from "boltwork";
 import type { CheckResults, ReviewVerdict, Finding } from "../types.ts";
+import { extractJson } from "./utils.ts";
 
 export interface ReviewOptions {
   /** The diff to review */
@@ -126,11 +127,7 @@ If everything looks good, return: {"approved": true, "findings": []}`);
 /** Parse the LLM response into a ReviewVerdict. */
 function parseVerdict(response: string): ReviewVerdict {
   try {
-    const jsonStr = response
-      .replace(/```json?\n?/g, "")
-      .replace(/```/g, "")
-      .trim();
-    const parsed = JSON.parse(jsonStr);
+    const parsed = JSON.parse(extractJson(response));
     return {
       approved: Boolean(parsed.approved),
       findings: Array.isArray(parsed.findings) ? parsed.findings : [],

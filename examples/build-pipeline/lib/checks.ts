@@ -7,6 +7,7 @@
 
 import type { Mind, CheckResults, Finding } from "../types.ts";
 import { DEFAULT_NEVER_MODIFY } from "../types.ts";
+import { matchesGlob } from "./utils.ts";
 
 /**
  * Run all deterministic checks on a drone's worktree.
@@ -128,15 +129,3 @@ function scopeTestCommand(testCommand: string, mind: Mind): string {
   return `${testCommand} ${dirs.join(" ")}`;
 }
 
-/**
- * Simple glob matching. Supports:
- * - `**` matches any number of path segments
- * - `*` matches within a single segment
- */
-function matchesGlob(filePath: string, pattern: string): boolean {
-  const regex = pattern
-    .replace(/\*\*/g, "___DOUBLESTAR___")
-    .replace(/\*/g, "[^/]*")
-    .replace(/___DOUBLESTAR___/g, ".*");
-  return new RegExp(`^${regex}$`).test(filePath);
-}
