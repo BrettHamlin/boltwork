@@ -330,4 +330,4 @@ await implement("Add rate limiting to the /api/users endpoint");
 
 ## License
 
-MIT
+Apache 2.0
