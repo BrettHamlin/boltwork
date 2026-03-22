@@ -70,20 +70,31 @@ export async function runPipeline(config: PipelineConfig): Promise<PipelineResul
         ),
       );
 
-      // Merge approved drones sequentially
-      for (const result of waveResults) {
-        if (result.approved) {
-          const mergeResult = mergeBranch(
-            process.cwd(),
-            result.session.branch!,
-            result.mind,
-            wave.id,
-          );
-          gate(mergeResult.success, `Merge failed for ${result.mind}: ${mergeResult.error}`);
-          console.log(`  Merged: ${result.mind}`);
-        } else {
-          console.log(`  FAILED: ${result.mind} (${result.error})`);
+      // Check for failures — abort pipeline if any drone in a wave failed
+      const failed = waveResults.filter((r) => !r.approved);
+      if (failed.length > 0) {
+        for (const f of failed) {
+          console.log(`  FAILED: ${f.mind} (${f.error})`);
         }
+        // Clean up all drones in this wave before aborting
+        for (const result of waveResults) {
+          await cleanupDrone(process.cwd(), result.session);
+        }
+        results.push({ wave: wave.id, drones: waveResults });
+        console.log(`\n  Wave ${wave.id} failed — aborting pipeline`);
+        break;
+      }
+
+      // All approved — merge sequentially
+      for (const result of waveResults) {
+        const mergeResult = mergeBranch(
+          process.cwd(),
+          result.session.branch!,
+          result.mind,
+          wave.id,
+        );
+        gate(mergeResult.success, `Merge failed for ${result.mind}: ${mergeResult.error}`);
+        console.log(`  Merged: ${result.mind}`);
       }
 
       // Clean up drones
