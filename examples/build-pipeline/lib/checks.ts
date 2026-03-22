@@ -1,0 +1,108 @@
+/**
+ * Checks
+ *
+ * Run deterministic checks on a drone's work: tests, boundary, diff.
+ * All checks are subprocess calls — no LLM involved.
+ */
+
+import type { Mind, CheckResults, Finding } from "../types.ts";
+
+/**
+ * Run all deterministic checks on a drone's worktree.
+ */
+export async function runChecks(
+  worktree: string,
+  baseBranch: string,
+  mind: Mind,
+  testCommand: string,
+): Promise<CheckResults> {
+  const diff = getDiff(worktree, baseBranch);
+  const testResult = runTests(worktree, testCommand);
+  const boundaryResult = checkBoundary(worktree, baseBranch, mind);
+
+  return {
+    diff,
+    testsPass: testResult.passed,
+    testOutput: testResult.output,
+    boundaryPass: boundaryResult.passed,
+    boundaryFindings: boundaryResult.findings,
+  };
+}
+
+/** Get the git diff between the drone's branch and the base branch. */
+function getDiff(worktree: string, baseBranch: string): string {
+  const result = Bun.spawnSync(
+    ["git", "diff", `${baseBranch}...HEAD`],
+    { cwd: worktree },
+  );
+  const diff = result.stdout.toString();
+  // Truncate to 50KB to avoid overwhelming the LLM review
+  return diff.length > 50_000 ? diff.slice(0, 50_000) + "\n... (truncated)" : diff;
+}
+
+/** Run tests scoped to the drone's worktree. */
+function runTests(
+  worktree: string,
+  testCommand: string,
+): { passed: boolean; output: string } {
+  const parts = testCommand.split(" ");
+  const result = Bun.spawnSync(parts, { cwd: worktree });
+
+  return {
+    passed: result.exitCode === 0,
+    output: result.stderr.toString().slice(-20_000), // last 20KB
+  };
+}
+
+/** Check that the drone only modified files within its boundary. */
+function checkBoundary(
+  worktree: string,
+  baseBranch: string,
+  mind: Mind,
+): { passed: boolean; findings: Finding[] } {
+  // Get files the drone modified
+  const logResult = Bun.spawnSync(
+    ["git", "log", "--name-only", "--pretty=format:", `${baseBranch}..HEAD`],
+    { cwd: worktree },
+  );
+  const modifiedFiles = logResult.stdout
+    .toString()
+    .split("\n")
+    .map((f) => f.trim())
+    .filter(Boolean);
+
+  if (modifiedFiles.length === 0) {
+    return { passed: true, findings: [] };
+  }
+
+  const findings: Finding[] = [];
+
+  for (const file of modifiedFiles) {
+    const owned = mind.owns.some((pattern) => matchesGlob(file, pattern));
+    if (!owned) {
+      findings.push({
+        file,
+        severity: "error",
+        message: `File outside boundary: "${file}" is not in ${mind.name}'s owns patterns`,
+      });
+    }
+  }
+
+  return {
+    passed: findings.length === 0,
+    findings,
+  };
+}
+
+/**
+ * Simple glob matching. Supports:
+ * - `**` matches any number of path segments
+ * - `*` matches within a single segment
+ */
+function matchesGlob(filePath: string, pattern: string): boolean {
+  const regex = pattern
+    .replace(/\*\*/g, "___DOUBLESTAR___")
+    .replace(/\*/g, "[^/]*")
+    .replace(/___DOUBLESTAR___/g, ".*");
+  return new RegExp(`^${regex}$`).test(filePath);
+}
