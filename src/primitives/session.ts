@@ -131,6 +131,9 @@ export async function spawnSession(options: SpawnOptions): Promise<SessionHandle
   }
   const paneId = split.stdout.toString().trim();
 
+  // Rebalance tmux layout so panes are evenly sized
+  Bun.spawnSync(["tmux", "select-layout", "tiled"]);
+
   // Write the brief to a file — avoids shell escaping issues with long briefs
   const briefPath = join(cwd, "BOLTWORK-BRIEF.md");
   writeFileSync(briefPath, options.brief);
@@ -161,8 +164,13 @@ export async function spawnSession(options: SpawnOptions): Promise<SessionHandle
     },
 
     async sendFeedback(message: string) {
-      const escaped = message.replace(/'/g, "'\\''");
-      Bun.spawnSync(["tmux", "send-keys", "-t", paneId, escaped, "Enter"]);
+      // Write feedback to a file, then tell the session to read it.
+      // This avoids tmux send-keys buffer limits and escaping issues
+      // with long multi-line messages.
+      const feedbackPath = join(cwd, "BOLTWORK-FEEDBACK.md");
+      writeFileSync(feedbackPath, message);
+      const instruction = "Read BOLTWORK-FEEDBACK.md for review feedback. Fix the issues described and commit again.";
+      Bun.spawnSync(["tmux", "send-keys", "-t", paneId, instruction, "Enter"]);
     },
 
     async kill() {
