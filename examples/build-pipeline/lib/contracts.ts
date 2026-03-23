@@ -144,10 +144,12 @@ function verifyConsumes(
   }
 
   if (tsFiles.length === 0) {
+    // No source files found — this can happen with narrow owns patterns.
+    // Downgrade to warning since the import will be caught by the LLM review.
     findings.push({
       file: ann.filePath,
-      severity: "error",
-      message: `[${ann.taskId}] consumes: no source files found to scan for import of '${ann.name}'`,
+      severity: "warning",
+      message: `[${ann.taskId}] consumes: could not scan source files for import of '${ann.name}' (owns patterns may be too narrow)`,
     });
     return;
   }

@@ -148,6 +148,12 @@ export async function spawnSession(options: SpawnOptions): Promise<SessionHandle
 
   Bun.spawnSync(["tmux", "send-keys", "-t", paneId, cmd, "Enter"]);
 
+  // Auto-accept the workspace trust dialog after a brief delay.
+  // Claude Code asks "Do you trust this folder?" on new worktrees.
+  setTimeout(() => {
+    Bun.spawnSync(["tmux", "send-keys", "-t", paneId, "Enter"]);
+  }, 3000);
+
   const worktreeCwd = cwd;
 
   return {

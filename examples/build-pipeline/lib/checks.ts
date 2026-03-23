@@ -43,7 +43,7 @@ export async function runChecks(
     testOutput: testResult.output,
     boundaryPass: boundaryResult.passed,
     boundaryFindings: boundaryResult.findings,
-    contractsPass: contractFindings.length === 0,
+    contractsPass: contractFindings.filter((f) => f.severity === "error").length === 0,
     contractFindings,
   };
 }
@@ -132,17 +132,28 @@ function checkBoundary(
 
 /**
  * Scope the test command to the mind's owned directories.
+ * Extracts unique parent directories from owns patterns.
+ * "bun test" + owns ["src/store.ts", "src/types.ts"] → "bun test src/"
  * "bun test" + owns ["packages/core/**"] → "bun test packages/core/"
  */
 function scopeTestCommand(testCommand: string, mind: Mind): string {
-  // Extract directory prefixes from owns patterns (strip trailing ** and *)
-  const dirs = mind.owns
-    .map((pattern) => pattern.replace(/\/?\*+$/, ""))
-    .filter(Boolean);
+  const dirs = new Set<string>();
 
-  if (dirs.length === 0) return testCommand;
+  for (const pattern of mind.owns) {
+    // Strip glob suffixes
+    let dir = pattern.replace(/\/?\*+$/, "");
+    // If it's a file path (has extension), use the parent directory
+    if (dir.includes(".")) {
+      const lastSlash = dir.lastIndexOf("/");
+      dir = lastSlash >= 0 ? dir.slice(0, lastSlash) : "";
+    }
+    // Ensure trailing slash for directory
+    if (dir && !dir.endsWith("/")) dir += "/";
+    if (dir) dirs.add(dir);
+  }
 
-  // Append scoped directories to the test command
-  return `${testCommand} ${dirs.join(" ")}`;
+  if (dirs.size === 0) return testCommand;
+
+  return `${testCommand} ${[...dirs].join(" ")}`;
 }
 

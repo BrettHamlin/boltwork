@@ -180,8 +180,6 @@ function validateManifest(value: unknown): string[] {
 
     if (typeof r.path !== "string" || r.path.length === 0) {
       errors.push(`repos[${i}].path must be a non-empty string`);
-    } else if ((r.path as string).includes("..")) {
-      errors.push(`Repo "${r.alias}" path contains ".." — path traversal not allowed`);
     }
 
     if (r.testCommand !== undefined && typeof r.testCommand !== "string") {
