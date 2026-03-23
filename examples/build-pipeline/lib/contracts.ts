@@ -8,7 +8,7 @@
  * Ported from Gravitas minds/lib/check-contracts-core.ts — single-repo only.
  */
 
-import { existsSync, readFileSync, readdirSync } from "fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "fs";
 import { resolve } from "path";
 import type { Finding } from "../types.ts";
 import { escapeRegExp } from "./utils.ts";
@@ -206,6 +206,17 @@ export function checkExportExists(content: string, name: string): boolean {
 function findTsFiles(dir: string): string[] {
   const results: string[] = [];
   try {
+    const stat = lstatSync(dir);
+    if (stat.isFile()) {
+      const name = dir.split("/").pop() ?? "";
+      if (
+        (name.endsWith(".ts") || name.endsWith(".js") || name.endsWith(".tsx") || name.endsWith(".jsx"))
+        && !name.endsWith(".d.ts")
+      ) {
+        results.push(dir);
+      }
+      return results;
+    }
     const entries = readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = resolve(dir, entry.name);
@@ -219,7 +230,7 @@ function findTsFiles(dir: string): string[] {
       }
     }
   } catch {
-    // directory doesn't exist or can't be read
+    // path doesn't exist or can't be read
   }
   return results;
 }
